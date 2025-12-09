@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DedupSharp.Cli/DedupSharp.Cli.csproj" Id="157d0b85-94a0-49a5-9f5f-9bfbee43bbf7" />
+  <Project Path="DedupSharp.Core.Exact/DedupSharp.Core.Exact.csproj" Id="3522cb90-89d2-4a68-ab51-b221faef7ae7" />
+  <Project Path="DedupSharp.Core/DedupSharp.Core.csproj" Id="8ad0153e-30d0-4667-bfb0-0b3c6c6b373a" />
+</Solution>
