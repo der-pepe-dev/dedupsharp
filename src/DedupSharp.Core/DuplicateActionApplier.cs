@@ -223,34 +223,88 @@ public static class DuplicateActionApplier
             return;
         }
 
-        // Delete the duplicate file and create a hard link at the same path pointing to canonical.
-        File.Delete(target);
+        // SAFETY: move the existing target out of the way first.
+        var backupPath = GetBackupPath(target);
+        File.Move(target, backupPath);
 
-        if (OperatingSystem.IsWindows())
+        try
         {
-            if (!CreateHardLinkWindows(target, canonical, IntPtr.Zero))
+            if (OperatingSystem.IsWindows())
             {
-                var err = Marshal.GetLastWin32Error();
-                throw new IOException($"CreateHardLink failed with Win32 error {err} for {target}");
+                if (!CreateHardLinkWindows(target, canonical, IntPtr.Zero))
+                {
+                    var err = Marshal.GetLastWin32Error();
+                    // rollback
+                    RestoreBackupIfNeeded(backupPath, target);
+                    throw new IOException($"CreateHardLink failed with Win32 error {err} for {target}");
+                }
+            }
+            else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                // link(canonical, target)
+                int result = LinkUnix(canonical, target);
+                if (result != 0)
+                {
+                    var err = Marshal.GetLastWin32Error();
+                    // rollback
+                    RestoreBackupIfNeeded(backupPath, target);
+
+                    if (err == 18) // EXDEV: cross-device link (common on ZFS datasets)
+                        throw new IOException($"Hardlink across filesystems is not supported for {target}.");
+
+                    throw new IOException($"link() failed with errno {err} for {target}");
+                }
+            }
+            else
+            {
+                // rollback
+                RestoreBackupIfNeeded(backupPath, target);
+                throw new PlatformNotSupportedException("Hardlink creation is not supported on this platform.");
+            }
+
+            // Hardlink succeeded, we can safely delete the backup.
+            File.Delete(backupPath);
+
+            applied++;
+            log?.Invoke($"APPLY HardLink: {target} -> {canonical}");
+        }
+        catch
+        {
+            // Best-effort rollback if something unexpected happened.
+            RestoreBackupIfNeeded(backupPath, target);
+            throw;
+        }
+    }
+
+    private static string GetBackupPath(string originalPath)
+    {
+        var dir = Path.GetDirectoryName(originalPath)!;
+        var name = Path.GetFileName(originalPath);
+        var backup = Path.Combine(dir, name + ".__dupbackup");
+
+        int counter = 1;
+        while (File.Exists(backup))
+        {
+            backup = Path.Combine(dir, $"{name}.__dupbackup{counter}");
+            counter++;
+        }
+
+        return backup;
+    }
+
+    private static void RestoreBackupIfNeeded(string backupPath, string originalPath)
+    {
+        try
+        {
+            if (File.Exists(backupPath) && !File.Exists(originalPath))
+            {
+                File.Move(backupPath, originalPath);
             }
         }
-        else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        catch
         {
-            // link(canonical, target)
-            int result = LinkUnix(canonical, target);
-            if (result != 0)
-            {
-                var err = Marshal.GetLastWin32Error();
-                throw new IOException($"link() failed with errno {err} for {target}");
-            }
+            // Don't hide the original error if rollback fails.
         }
-        else
-        {
-            throw new PlatformNotSupportedException("Hardlink creation is not supported on this platform.");
-        }
-
-        applied++;
-        log?.Invoke($"APPLY HardLink: {target} -> {canonical}");
     }
 
     // ----------------- Drift detection -----------------
@@ -340,6 +394,6 @@ public static class DuplicateActionApplier
         IntPtr lpSecurityAttributes);
 
     // Unix: int link(const char *oldpath, const char *newpath);
-    [DllImport("libc", SetLastError = true, CharSet = CharSet.Ansi)]
+    [DllImport("libc", EntryPoint = "link", SetLastError = true, CharSet = CharSet.Ansi)]
     private static extern int LinkUnix(string oldpath, string newpath);
 }
