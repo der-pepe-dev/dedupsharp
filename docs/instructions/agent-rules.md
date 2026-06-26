@@ -36,5 +36,8 @@ Rules that apply to all agents (Claude Code, Codex, Copilot) working in this rep
 - For every change, create a `feat/<short-name>` branch (use `fix/<...>` or
   `chore/<...>` when more fitting), push it, and open a PR against `main`.
 - Let the PR merge into `main` (the repo has CI + Claude review workflows on PRs).
+- When addressing a PR review comment, after pushing the fix: reply to that review
+  thread (note what changed / the commit), then mark the thread resolved. Do not leave
+  addressed comments unanswered or unresolved.
 
 <!-- TODO: add project-specific agent rules here -->
