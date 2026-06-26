@@ -265,11 +265,8 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             else
             {
                 rawGroups = new List<List<FileEntry>>();
-                foreach (var bucket in GroupByHash(list, hashAlgorithm, cancellationToken))
+                foreach (var bucket in GroupByHash(list, hashAlgorithm, cancellationToken).Where(b => b.Count >= 2))
                 {
-                    if (bucket.Count < 2)
-                        continue;
-
                     if (verify)
                         rawGroups.AddRange(PartitionByBinaryContent(bucket, cancellationToken));
                     else
