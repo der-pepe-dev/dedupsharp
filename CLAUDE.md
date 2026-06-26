@@ -4,7 +4,9 @@
 
 - Stack: C#/.NET
 - Environment: WSL2
-- Build: `dotnet build src/DedupSharp.slnx` | Test: `dotnet test src/DedupSharp.slnx`
+- Build: `dotnet build src/DedupSharp.slnx` | Test: `dotnet test --solution src/DedupSharp.slnx`
+- Tests use TUnit (Microsoft.Testing.Platform). MTP mode enabled via `global.json`
+  (`test.runner`), so the test command needs `--solution` (not a bare path).
 
 ## Startup
 

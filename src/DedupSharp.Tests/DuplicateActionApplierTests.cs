@@ -1,8 +1,11 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using DedupSharp.Core;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace DedupSharp.Tests;
 
@@ -60,8 +63,8 @@ public class DuplicateActionApplierTests : IDisposable
 
     // ---------- MoveToQuarantine ----------
 
-    [Fact]
-    public void MoveToQuarantine_DryRun_DoesNotMoveFile()
+    [Test]
+    public async Task MoveToQuarantine_DryRun_DoesNotMoveFile()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -71,14 +74,14 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.True(File.Exists(target));
-        Assert.Equal(0, result.Applied);
-        Assert.Equal(1, result.DryRunApplied);
-        Assert.Equal(0, result.Skipped);
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.DryRunApplied).IsEqualTo(1);
+        await Assert.That(result.Skipped).IsEqualTo(0);
     }
 
-    [Fact]
-    public void MoveToQuarantine_NoQuarantineDir_SkipsNotFails()
+    [Test]
+    public async Task MoveToQuarantine_NoQuarantineDir_SkipsNotFails()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -88,14 +91,14 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.True(File.Exists(target));
-        Assert.Equal(0, result.Applied);
-        Assert.Equal(1, result.Skipped);
-        Assert.Equal(0, result.Failed);
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.Skipped).IsEqualTo(1);
+        await Assert.That(result.Failed).IsEqualTo(0);
     }
 
-    [Fact]
-    public void MoveToQuarantine_NoDryRun_MovesFile()
+    [Test]
+    public async Task MoveToQuarantine_NoDryRun_MovesFile()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -105,14 +108,14 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.False(File.Exists(target));
-        Assert.Single(Directory.GetFiles(_quarantineDir));
-        Assert.Equal(1, result.Applied);
-        Assert.Equal(0, result.Skipped);
+        await Assert.That(File.Exists(target)).IsFalse();
+        await Assert.That(Directory.GetFiles(_quarantineDir)).HasSingleItem();
+        await Assert.That(result.Applied).IsEqualTo(1);
+        await Assert.That(result.Skipped).IsEqualTo(0);
     }
 
-    [Fact]
-    public void MoveToQuarantine_UniqueDestination_WhenNameCollides()
+    [Test]
+    public async Task MoveToQuarantine_UniqueDestination_WhenNameCollides()
     {
         var canonical = WriteFile("canonical.txt");
         var dup1 = WriteFile("dup.txt", "same");
@@ -128,13 +131,13 @@ public class DuplicateActionApplierTests : IDisposable
         DuplicateActionApplier.Apply([action], options);
 
         // Original dup.txt in quarantine should still exist; moved file gets unique name
-        Assert.Equal(2, Directory.GetFiles(_quarantineDir).Length);
+        await Assert.That(Directory.GetFiles(_quarantineDir).Length).IsEqualTo(2);
     }
 
     // ---------- Delete ----------
 
-    [Fact]
-    public void Delete_AllowDeleteFalse_SkipsNotFails()
+    [Test]
+    public async Task Delete_AllowDeleteFalse_SkipsNotFails()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -144,14 +147,14 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.True(File.Exists(target));
-        Assert.Equal(0, result.Applied);
-        Assert.Equal(1, result.Skipped);
-        Assert.Equal(0, result.Failed);
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.Skipped).IsEqualTo(1);
+        await Assert.That(result.Failed).IsEqualTo(0);
     }
 
-    [Fact]
-    public void Delete_DryRun_DoesNotDeleteFile()
+    [Test]
+    public async Task Delete_DryRun_DoesNotDeleteFile()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -161,13 +164,13 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.True(File.Exists(target));
-        Assert.Equal(0, result.Applied);
-        Assert.Equal(1, result.DryRunApplied);
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.DryRunApplied).IsEqualTo(1);
     }
 
-    [Fact]
-    public void Delete_NoDryRun_DeletesTarget()
+    [Test]
+    public async Task Delete_NoDryRun_DeletesTarget()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -177,15 +180,15 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.False(File.Exists(target));
-        Assert.True(File.Exists(canonical));
-        Assert.Equal(1, result.Applied);
+        await Assert.That(File.Exists(target)).IsFalse();
+        await Assert.That(File.Exists(canonical)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(1);
     }
 
     // ---------- Drift detection ----------
 
-    [Fact]
-    public void DriftDetection_ModifiedTarget_SkipsAction()
+    [Test]
+    public async Task DriftDetection_ModifiedTarget_SkipsAction()
     {
         var canonical = WriteFile("canonical.txt", "original");
         var target = WriteFile("dup.txt", "original");
@@ -198,15 +201,15 @@ public class DuplicateActionApplierTests : IDisposable
         var options = new DuplicateActionApplyOptions { DryRun = false, QuarantineDirectory = _quarantineDir };
         var result = DuplicateActionApplier.Apply([action], options);
 
-        Assert.True(File.Exists(target));
-        Assert.Equal(0, result.Applied);
-        Assert.Equal(1, result.Skipped);
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.Skipped).IsEqualTo(1);
     }
 
     // ---------- Cancellation ----------
 
-    [Fact]
-    public void Apply_CancelledToken_ThrowsOperationCancelled()
+    [Test]
+    public async Task Apply_CancelledToken_ThrowsOperationCancelled()
     {
         var canonical = WriteFile("canonical.txt");
         var target = WriteFile("dup.txt");
@@ -218,14 +221,14 @@ public class DuplicateActionApplierTests : IDisposable
 
         var options = new DuplicateActionApplyOptions { DryRun = true, QuarantineDirectory = _quarantineDir };
 
-        Assert.Throws<OperationCanceledException>(
-            () => DuplicateActionApplier.Apply([action], options, cancellationToken: cts.Token));
+        await Assert.That(() => DuplicateActionApplier.Apply([action], options, cancellationToken: cts.Token))
+            .Throws<OperationCanceledException>();
     }
 
     // ---------- result counts ----------
 
-    [Fact]
-    public void Result_MultipleActions_CountsCorrectly()
+    [Test]
+    public async Task Result_MultipleActions_CountsCorrectly()
     {
         var canonical = WriteFile("c.txt", "data");
         var dup1 = WriteFile("d1.txt", "data");
@@ -240,9 +243,9 @@ public class DuplicateActionApplierTests : IDisposable
 
         var result = DuplicateActionApplier.Apply(actions, options);
 
-        Assert.Equal(2, result.TotalActions);
-        Assert.Equal(2, result.Applied);
-        Assert.Equal(0, result.Skipped);
-        Assert.Equal(0, result.Failed);
+        await Assert.That(result.TotalActions).IsEqualTo(2);
+        await Assert.That(result.Applied).IsEqualTo(2);
+        await Assert.That(result.Skipped).IsEqualTo(0);
+        await Assert.That(result.Failed).IsEqualTo(0);
     }
 }

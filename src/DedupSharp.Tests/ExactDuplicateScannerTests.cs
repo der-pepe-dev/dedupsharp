@@ -1,9 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using DedupSharp.Core;
 using DedupSharp.Core.Exact;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace DedupSharp.Tests;
 
@@ -38,35 +41,35 @@ public class ExactDuplicateScannerTests : IDisposable
 
     // ---------- basic ----------
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Scanner_FindsIdenticalFiles(bool usePreScan)
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Scanner_FindsIdenticalFiles(bool usePreScan)
     {
         WriteFile("a.txt", "hello world");
         WriteFile("b.txt", "hello world");
 
         var groups = _scanner.Scan(SingleDirOptions(usePreScan)).ToList();
 
-        Assert.Single(groups);
-        Assert.Equal(2, groups[0].Files.Count);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Files.Count).IsEqualTo(2);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Scanner_NoGroupsForUniqueFiles(bool usePreScan)
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Scanner_NoGroupsForUniqueFiles(bool usePreScan)
     {
         WriteFile("a.txt", "aaa");
         WriteFile("b.txt", "bbb");
 
         var groups = _scanner.Scan(SingleDirOptions(usePreScan)).ToList();
 
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
-    [Fact]
-    public void Scanner_ThreeIdenticalFiles_OneGroup()
+    [Test]
+    public async Task Scanner_ThreeIdenticalFiles_OneGroup()
     {
         WriteFile("x.txt", "same");
         WriteFile("y.txt", "same");
@@ -74,12 +77,12 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(SingleDirOptions()).ToList();
 
-        Assert.Single(groups);
-        Assert.Equal(3, groups[0].Files.Count);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Files.Count).IsEqualTo(3);
     }
 
-    [Fact]
-    public void Scanner_TwoPairsOfDuplicates_TwoGroups()
+    [Test]
+    public async Task Scanner_TwoPairsOfDuplicates_TwoGroups()
     {
         WriteFile("a1.txt", "content-alpha");
         WriteFile("a2.txt", "content-alpha");
@@ -88,13 +91,13 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(SingleDirOptions()).ToList();
 
-        Assert.Equal(2, groups.Count);
+        await Assert.That(groups.Count).IsEqualTo(2);
     }
 
     // ---------- extension filter ----------
 
-    [Fact]
-    public void Scanner_ExtensionFilter_SkipsNonMatchingExtensions()
+    [Test]
+    public async Task Scanner_ExtensionFilter_SkipsNonMatchingExtensions()
     {
         WriteFile("dup.txt", "same");
         WriteFile("dup.log", "same");
@@ -104,11 +107,11 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Empty(groups); // only one .txt, can't form group
+        await Assert.That(groups).IsEmpty(); // only one .txt, can't form group
     }
 
-    [Fact]
-    public void Scanner_ExtensionFilter_FindsMatchingDuplicates()
+    [Test]
+    public async Task Scanner_ExtensionFilter_FindsMatchingDuplicates()
     {
         WriteFile("a.txt", "same");
         WriteFile("b.txt", "same");
@@ -119,15 +122,16 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Single(groups);
-        Assert.Equal(2, groups[0].Files.Count);
-        Assert.All(groups[0].Files, f => Assert.EndsWith(".txt", f.Path, StringComparison.OrdinalIgnoreCase));
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Files.Count).IsEqualTo(2);
+        foreach (var f in groups[0].Files)
+            await Assert.That(f.Path).EndsWith(".txt", StringComparison.OrdinalIgnoreCase);
     }
 
     // ---------- min size ----------
 
-    [Fact]
-    public void Scanner_MinSize_SkipsSmallFiles()
+    [Test]
+    public async Task Scanner_MinSize_SkipsSmallFiles()
     {
         WriteFile("small1.txt", "hi"); // 2 bytes
         WriteFile("small2.txt", "hi");
@@ -137,13 +141,13 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
     // ---------- ignored dirs ----------
 
-    [Fact]
-    public void Scanner_IgnoredDirectory_IsSkipped()
+    [Test]
+    public async Task Scanner_IgnoredDirectory_IsSkipped()
     {
         var subDir = Path.Combine(_tempDir, "skip_me");
         Directory.CreateDirectory(subDir);
@@ -156,16 +160,16 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
     // ---------- exact modes ----------
 
-    [Theory]
-    [InlineData(ExactScanMode.HashOnly)]
-    [InlineData(ExactScanMode.BinaryForPairs_HashForGroups)]
-    [InlineData(ExactScanMode.HashWithBinaryVerification)]
-    public void Scanner_AllModes_FindDuplicatePair(ExactScanMode mode)
+    [Test]
+    [Arguments(ExactScanMode.HashOnly)]
+    [Arguments(ExactScanMode.BinaryForPairs_HashForGroups)]
+    [Arguments(ExactScanMode.HashWithBinaryVerification)]
+    public async Task Scanner_AllModes_FindDuplicatePair(ExactScanMode mode)
     {
         WriteFile("p.bin", "duplicate content here");
         WriteFile("q.bin", "duplicate content here");
@@ -175,14 +179,14 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Single(groups);
+        await Assert.That(groups).HasSingleItem();
     }
 
-    [Theory]
-    [InlineData(ExactScanMode.HashOnly)]
-    [InlineData(ExactScanMode.BinaryForPairs_HashForGroups)]
-    [InlineData(ExactScanMode.HashWithBinaryVerification)]
-    public void Scanner_AllModes_NoDuplicates(ExactScanMode mode)
+    [Test]
+    [Arguments(ExactScanMode.HashOnly)]
+    [Arguments(ExactScanMode.BinaryForPairs_HashForGroups)]
+    [Arguments(ExactScanMode.HashWithBinaryVerification)]
+    public async Task Scanner_AllModes_NoDuplicates(ExactScanMode mode)
     {
         WriteFile("p.bin", "aaa");
         WriteFile("q.bin", "bbb");
@@ -192,13 +196,13 @@ public class ExactDuplicateScannerTests : IDisposable
 
         var groups = _scanner.Scan(options).ToList();
 
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
     // ---------- group size ----------
 
-    [Fact]
-    public void Scanner_GroupSizeBytes_MatchesActualFileSize()
+    [Test]
+    public async Task Scanner_GroupSizeBytes_MatchesActualFileSize()
     {
         const string content = "exactly this content";
         WriteFile("f1.txt", content);
@@ -207,28 +211,28 @@ public class ExactDuplicateScannerTests : IDisposable
         var expectedSize = new FileInfo(Path.Combine(_tempDir, "f1.txt")).Length;
         var groups = _scanner.Scan(SingleDirOptions()).ToList();
 
-        Assert.Single(groups);
-        Assert.Equal(expectedSize, groups[0].SizeBytes);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].SizeBytes).IsEqualTo(expectedSize);
     }
 
     // ---------- validation ----------
 
-    [Fact]
-    public void Scanner_NullOptions_Throws()
+    [Test]
+    public async Task Scanner_NullOptions_Throws()
     {
-        Assert.Throws<ArgumentNullException>(() => _scanner.Scan(null!).ToList());
+        await Assert.That(() => _scanner.Scan(null!).ToList()).Throws<ArgumentNullException>();
     }
 
-    [Fact]
-    public void Scanner_EmptyPaths_Throws()
+    [Test]
+    public async Task Scanner_EmptyPaths_Throws()
     {
-        Assert.Throws<ArgumentException>(() => _scanner.Scan(new ScanOptions()).ToList());
+        await Assert.That(() => _scanner.Scan(new ScanOptions()).ToList()).Throws<ArgumentException>();
     }
 
     // ---------- cancellation ----------
 
-    [Fact]
-    public void Scanner_CancelledToken_ThrowsOperationCancelled()
+    [Test]
+    public async Task Scanner_CancelledToken_ThrowsOperationCancelled()
     {
         for (int i = 0; i < 20; i++)
             WriteFile($"file{i}.txt", "same content everywhere");
@@ -239,6 +243,6 @@ public class ExactDuplicateScannerTests : IDisposable
         var options = SingleDirOptions();
         options.CancellationToken = cts.Token;
 
-        Assert.Throws<OperationCanceledException>(() => _scanner.Scan(options).ToList());
+        await Assert.That(() => _scanner.Scan(options).ToList()).Throws<OperationCanceledException>();
     }
 }

@@ -1,14 +1,17 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using DedupSharp.Core;
-using Xunit;
+using TUnit.Core;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
 
 namespace DedupSharp.Tests;
 
 public class DuplicateActionPlannerTests
 {
-    [Fact]
-    public void Planner_IgnoresGroupsWithSingleFile()
+    [Test]
+    public async Task Planner_IgnoresGroupsWithSingleFile()
     {
         var group = new DuplicateGroup(
             10, // sizeBytes
@@ -25,11 +28,11 @@ public class DuplicateActionPlannerTests
 
         var actions = DuplicateActionPlanner.Plan(new[] { group }, options);
 
-        Assert.Empty(actions);
+        await Assert.That(actions).IsEmpty();
     }
 
-    [Fact]
-    public void Planner_UsesLexicalCanonical_AndProducesActionsWithSnapshot()
+    [Test]
+    public async Task Planner_UsesLexicalCanonical_AndProducesActionsWithSnapshot()
     {
         var files = new List<FileEntry>
         {
@@ -51,28 +54,31 @@ public class DuplicateActionPlannerTests
         var actions = DuplicateActionPlanner.Plan(new[] { group }, options);
 
         // We have 3 files, so 2 actions (everything except canonical).
-        Assert.Equal(2, actions.Count);
+        await Assert.That(actions.Count).IsEqualTo(2);
 
         // Canonical should be the lexicographically smallest path: "a.txt".
         const string canonical = "a.txt";
-        Assert.All(actions, a => Assert.Equal(canonical, a.CanonicalPath));
+        foreach (var a in actions)
+            await Assert.That(a.CanonicalPath).IsEqualTo(canonical);
 
         // Targets should be the remaining files.
         var targets = actions.Select(a => a.TargetPath).ToHashSet();
-        Assert.Contains("b.txt", targets);
-        Assert.Contains("z.txt", targets);
+        await Assert.That(targets).Contains("b.txt");
+        await Assert.That(targets).Contains("z.txt");
 
         // Group size should be copied to SizeBytes (diagnostic).
-        Assert.All(actions, a => Assert.Equal(group.SizeBytes, a.SizeBytes));
+        foreach (var a in actions)
+            await Assert.That(a.SizeBytes).IsEqualTo(group.SizeBytes);
 
         // Snapshot sizes should match file sizes (10 bytes in this test).
-        Assert.All(actions, a =>
+        foreach (var a in actions)
         {
-            Assert.Equal(10, a.CanonicalOriginalSizeBytes);
-            Assert.Equal(10, a.TargetOriginalSizeBytes);
-        });
+            await Assert.That(a.CanonicalOriginalSizeBytes).IsEqualTo(10);
+            await Assert.That(a.TargetOriginalSizeBytes).IsEqualTo(10);
+        }
 
         // Action kind should be what we configured.
-        Assert.All(actions, a => Assert.Equal(DupActionKind.MoveToQuarantine, a.Kind));
+        foreach (var a in actions)
+            await Assert.That(a.Kind).IsEqualTo(DupActionKind.MoveToQuarantine);
     }
 }
