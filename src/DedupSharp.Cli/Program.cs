@@ -3,10 +3,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 using DedupSharp.Core;
 using DedupSharp.Core.Exact;
+
+[assembly: InternalsVisibleTo("DedupSharp.Tests")]
+
+namespace DedupSharp.Cli;
 
 // Simple CLI for DedupSharp:
 //  - Scan for exact duplicates (using ExactDuplicateScanner)
@@ -38,207 +43,26 @@ internal static class Program
 
     private static int Run(string[] args)
     {
-        var paths = new List<string>();
+        var opts = ParseArguments(args);
 
-        bool recursive = true;
-        bool usePreScan = true;
-        long minSizeBytes = 1;
-        var safeExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var ignoredDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var ignoredFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ExactScanMode exactMode = ExactScanMode.BinaryForPairs_HashForGroups;
-        HashAlgorithmKind hashAlgorithm = HashAlgorithmKind.Sha256;
+        var paths = opts.Paths;
+        bool recursive = opts.Recursive;
+        bool usePreScan = opts.UsePreScan;
+        long minSizeBytes = opts.MinSizeBytes;
+        var safeExtensions = opts.SafeExtensions;
+        var ignoredDirs = opts.IgnoredDirectoryNames;
+        var ignoredFiles = opts.IgnoredFileNames;
+        ExactScanMode exactMode = opts.ExactMode;
+        HashAlgorithmKind hashAlgorithm = opts.HashAlgorithm;
 
-        bool doPlan = false;
-        bool doApply = false;
-        bool dryRun = true;
-        bool allowDelete = false;
-        string? planFile = null;
-        string? quarantineDir = null;
-        DupActionKind actionKind = DupActionKind.MoveToQuarantine;
-        bool assumeYes = false;
-
-        // Simple manual parsing
-        for (int i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-
-            if (arg.StartsWith("-", StringComparison.Ordinal))
-            {
-                switch (arg)
-                {
-                    case "--no-prescan":
-                        usePreScan = false;
-                        break;
-
-                    case "--recursive":
-                        recursive = true;
-                        break;
-
-                    case "--no-recursive":
-                        recursive = false;
-                        break;
-
-                    case "--min-size":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--min-size requires a value.");
-
-                            i++;
-                            if (!TryParseSize(args[i], out minSizeBytes))
-                                throw new ArgumentException($"Invalid size value: {args[i]}");
-                            break;
-                        }
-
-                    case "--ext":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--ext requires a value.");
-
-                            i++;
-                            var ext = args[i];
-                            if (!ext.StartsWith(".", StringComparison.Ordinal))
-                                ext = "." + ext;
-                            safeExtensions.Add(ext);
-                            break;
-                        }
-
-                    case "--ignore-dir":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--ignore-dir requires a value.");
-                            i++;
-                            ignoredDirs.Add(args[i]);
-                            break;
-                        }
-
-                    case "--ignore-file":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--ignore-file requires a value.");
-                            i++;
-                            ignoredFiles.Add(args[i]);
-                            break;
-                        }
-
-                    case "--exact-mode":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--exact-mode requires a value.");
-
-                            i++;
-                            var modeStr = args[i].ToLowerInvariant();
-                            exactMode = modeStr switch
-                            {
-                                "binary" or "binaryforpairs" or "pairs" =>
-                                    ExactScanMode.BinaryForPairs_HashForGroups,
-                                "hash" or "hashonly" =>
-                                    ExactScanMode.HashOnly,
-                                "hash+verify" or "hashverify" or "verify" =>
-                                    ExactScanMode.HashWithBinaryVerification,
-                                _ => throw new ArgumentException($"Unknown exact mode: {args[i]}")
-                            };
-                            break;
-                        }
-
-                    case "--hash":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--hash requires a value.");
-
-                            i++;
-                            var hashStr = args[i].ToLowerInvariant();
-                            hashAlgorithm = hashStr switch
-                            {
-                                "sha256" or "sha-256" => HashAlgorithmKind.Sha256,
-                                "xxhash3" or "xxh3" => HashAlgorithmKind.XxHash3,
-                                "xxhash128" or "xxh128" => HashAlgorithmKind.XxHash128,
-                                "blake3" or "b3" => HashAlgorithmKind.Blake3,
-                                _ => throw new ArgumentException($"Unknown hash algorithm: {args[i]}")
-                            };
-                            break;
-                        }
-
-                    case "--plan":
-                        doPlan = true;
-                        break;
-
-                    case "--apply":
-                        doApply = true;
-                        break;
-
-                    case "--plan-file":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--plan-file requires a value.");
-                            i++;
-                            planFile = args[i];
-                            break;
-                        }
-
-                    case "--dry-run":
-                        dryRun = true;
-                        break;
-
-                    case "--no-dry-run":
-                        dryRun = false;
-                        break;
-
-                    case "--action":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--action requires a value.");
-
-                            i++;
-                            var actionStr = args[i].ToLowerInvariant();
-                            actionKind = actionStr switch
-                            {
-                                "move" or "quarantine" =>
-                                    DupActionKind.MoveToQuarantine,
-                                "delete" or "del" =>
-                                    DupActionKind.Delete,
-                                "hardlink" or "link" =>
-                                    DupActionKind.ReplaceWithHardLink,
-                                _ => throw new ArgumentException($"Unknown action: {args[i]}")
-                            };
-                            break;
-                        }
-
-                    case "--quarantine":
-                        {
-                            if (i + 1 >= args.Length)
-                                throw new ArgumentException("--quarantine requires a value.");
-                            i++;
-                            quarantineDir = args[i];
-                            break;
-                        }
-
-                    case "--allow-delete":
-                        allowDelete = true;
-                        break;
-
-                    case "--yes":
-                        assumeYes = true;
-                        break;
-
-                    default:
-                        throw new ArgumentException($"Unknown option: {arg}");
-                }
-            }
-            else
-            {
-                paths.Add(arg);
-            }
-        }
-
-        if (paths.Count == 0 && string.IsNullOrEmpty(planFile) && !doApply)
-            throw new ArgumentException("No paths specified.");
-
-        // Default is scan-only (report duplicates). A plan file is written only when
-        // --plan is given explicitly, so a plain scan has no filesystem side effects.
-
-        if (doApply && string.IsNullOrEmpty(planFile) && paths.Count == 0)
-            throw new ArgumentException("Apply requires either --plan-file or scan paths to build a plan from.");
+        bool doPlan = opts.DoPlan;
+        bool doApply = opts.DoApply;
+        bool dryRun = opts.DryRun;
+        bool allowDelete = opts.AllowDelete;
+        string? planFile = opts.PlanFile;
+        string? quarantineDir = opts.QuarantineDirectory;
+        DupActionKind actionKind = opts.ActionKind;
+        bool assumeYes = opts.AssumeYes;
 
         if (doApply && actionKind == DupActionKind.Delete && !allowDelete)
         {
@@ -437,7 +261,206 @@ internal static class Program
         return 0;
     }
 
-    private static bool TryParseSize(string text, out long bytes)
+    internal static CliOptions ParseArguments(string[] args)
+    {
+        var paths = new List<string>();
+
+        bool recursive = true;
+        bool usePreScan = true;
+        long minSizeBytes = 1;
+        var safeExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ignoredDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ignoredFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ExactScanMode exactMode = ExactScanMode.BinaryForPairs_HashForGroups;
+        HashAlgorithmKind hashAlgorithm = HashAlgorithmKind.Sha256;
+
+        bool doPlan = false;
+        bool doApply = false;
+        bool dryRun = true;
+        bool allowDelete = false;
+        string? planFile = null;
+        string? quarantineDir = null;
+        DupActionKind actionKind = DupActionKind.MoveToQuarantine;
+        bool assumeYes = false;
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+
+            if (arg.StartsWith("-", StringComparison.Ordinal))
+            {
+                switch (arg)
+                {
+                    case "--no-prescan":
+                        usePreScan = false;
+                        break;
+
+                    case "--recursive":
+                        recursive = true;
+                        break;
+
+                    case "--no-recursive":
+                        recursive = false;
+                        break;
+
+                    case "--min-size":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--min-size requires a value.");
+                        i++;
+                        if (!TryParseSize(args[i], out minSizeBytes))
+                            throw new ArgumentException($"Invalid size value: {args[i]}");
+                        break;
+
+                    case "--ext":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--ext requires a value.");
+                        i++;
+                        var ext = args[i];
+                        if (!ext.StartsWith(".", StringComparison.Ordinal))
+                            ext = "." + ext;
+                        safeExtensions.Add(ext);
+                        break;
+
+                    case "--ignore-dir":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--ignore-dir requires a value.");
+                        i++;
+                        ignoredDirs.Add(args[i]);
+                        break;
+
+                    case "--ignore-file":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--ignore-file requires a value.");
+                        i++;
+                        ignoredFiles.Add(args[i]);
+                        break;
+
+                    case "--exact-mode":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--exact-mode requires a value.");
+                        i++;
+                        exactMode = ParseExactMode(args[i]);
+                        break;
+
+                    case "--hash":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--hash requires a value.");
+                        i++;
+                        hashAlgorithm = ParseHashAlgorithm(args[i]);
+                        break;
+
+                    case "--plan":
+                        doPlan = true;
+                        break;
+
+                    case "--apply":
+                        doApply = true;
+                        break;
+
+                    case "--plan-file":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--plan-file requires a value.");
+                        i++;
+                        planFile = args[i];
+                        break;
+
+                    case "--dry-run":
+                        dryRun = true;
+                        break;
+
+                    case "--no-dry-run":
+                        dryRun = false;
+                        break;
+
+                    case "--action":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--action requires a value.");
+                        i++;
+                        actionKind = ParseActionKind(args[i]);
+                        break;
+
+                    case "--quarantine":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--quarantine requires a value.");
+                        i++;
+                        quarantineDir = args[i];
+                        break;
+
+                    case "--allow-delete":
+                        allowDelete = true;
+                        break;
+
+                    case "--yes":
+                        assumeYes = true;
+                        break;
+
+                    default:
+                        throw new ArgumentException($"Unknown option: {arg}");
+                }
+            }
+            else
+            {
+                paths.Add(arg);
+            }
+        }
+
+        if (paths.Count == 0 && string.IsNullOrEmpty(planFile) && !doApply)
+            throw new ArgumentException("No paths specified.");
+
+        if (doApply && string.IsNullOrEmpty(planFile) && paths.Count == 0)
+            throw new ArgumentException("Apply requires either --plan-file or scan paths to build a plan from.");
+
+        return new CliOptions
+        {
+            Paths = paths,
+            Recursive = recursive,
+            UsePreScan = usePreScan,
+            MinSizeBytes = minSizeBytes,
+            SafeExtensions = safeExtensions,
+            IgnoredDirectoryNames = ignoredDirs,
+            IgnoredFileNames = ignoredFiles,
+            ExactMode = exactMode,
+            HashAlgorithm = hashAlgorithm,
+            DoPlan = doPlan,
+            DoApply = doApply,
+            DryRun = dryRun,
+            AllowDelete = allowDelete,
+            PlanFile = planFile,
+            QuarantineDirectory = quarantineDir,
+            ActionKind = actionKind,
+            AssumeYes = assumeYes
+        };
+    }
+
+    internal static ExactScanMode ParseExactMode(string value) =>
+        value.ToLowerInvariant() switch
+        {
+            "binary" or "binaryforpairs" or "pairs" => ExactScanMode.BinaryForPairs_HashForGroups,
+            "hash" or "hashonly" => ExactScanMode.HashOnly,
+            "hash+verify" or "hashverify" or "verify" => ExactScanMode.HashWithBinaryVerification,
+            _ => throw new ArgumentException($"Unknown exact mode: {value}")
+        };
+
+    internal static HashAlgorithmKind ParseHashAlgorithm(string value) =>
+        value.ToLowerInvariant() switch
+        {
+            "sha256" or "sha-256" => HashAlgorithmKind.Sha256,
+            "xxhash3" or "xxh3" => HashAlgorithmKind.XxHash3,
+            "xxhash128" or "xxh128" => HashAlgorithmKind.XxHash128,
+            "blake3" or "b3" => HashAlgorithmKind.Blake3,
+            _ => throw new ArgumentException($"Unknown hash algorithm: {value}")
+        };
+
+    internal static DupActionKind ParseActionKind(string value) =>
+        value.ToLowerInvariant() switch
+        {
+            "move" or "quarantine" => DupActionKind.MoveToQuarantine,
+            "delete" or "del" => DupActionKind.Delete,
+            "hardlink" or "link" => DupActionKind.ReplaceWithHardLink,
+            _ => throw new ArgumentException($"Unknown action: {value}")
+        };
+
+    internal static bool TryParseSize(string text, out long bytes)
     {
         // Supports plain bytes, or suffixes: K, M, G (binary, 1024-based).
         // e.g. 100K, 10M, 1G
@@ -529,4 +552,28 @@ internal static class Program
         Console.WriteLine("  --yes                      Do not prompt for confirmation");
         Console.WriteLine();
     }
+}
+
+/// <summary>
+/// Parsed CLI options (pure result of <see cref="Program.ParseArguments"/>, no I/O).
+/// </summary>
+internal sealed class CliOptions
+{
+    public List<string> Paths { get; init; } = new();
+    public bool Recursive { get; init; } = true;
+    public bool UsePreScan { get; init; } = true;
+    public long MinSizeBytes { get; init; } = 1;
+    public HashSet<string> SafeExtensions { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> IgnoredDirectoryNames { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> IgnoredFileNames { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public ExactScanMode ExactMode { get; init; } = ExactScanMode.BinaryForPairs_HashForGroups;
+    public HashAlgorithmKind HashAlgorithm { get; init; } = HashAlgorithmKind.Sha256;
+    public bool DoPlan { get; init; }
+    public bool DoApply { get; init; }
+    public bool DryRun { get; init; } = true;
+    public bool AllowDelete { get; init; }
+    public string? PlanFile { get; init; }
+    public string? QuarantineDirectory { get; init; }
+    public DupActionKind ActionKind { get; init; } = DupActionKind.MoveToQuarantine;
+    public bool AssumeYes { get; init; }
 }
