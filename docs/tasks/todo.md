@@ -10,4 +10,9 @@ Durable, prioritized task list. Active work goes in `tasks/<task-name>.md`, not 
 
 ## Medium priority
 
+- [ ] Implement the media (perceptual image) core per ADR
+      `docs/decisions/0001-media-image-perceptual-dedup.md`: `DedupSharp.Core.Media`
+      (ImageSharp), `PerceptualHashKind` (aHash/dHash/pHash), Hamming-distance
+      clustering, `DuplicateKind`, hardlink guard for non-Exact groups.
+
 ## Low priority / someday

@@ -11,7 +11,7 @@ High-level direction, from the README. Update as items land.
 
 ## Later
 - Media core for images — perceptual hashes, similarity detection (resized,
-  recompressed, small edits)
+  recompressed, small edits). Design: [[decisions/0001-media-image-perceptual-dedup]].
 - Audio core — PCM-exact (container/metadata agnostic) plus spectrogram-based
   perceptual matching that reuses the image core's hashing engine
 - Windows GUI (WinForms/WPF), possibly plugins (e.g. Total Commander)
