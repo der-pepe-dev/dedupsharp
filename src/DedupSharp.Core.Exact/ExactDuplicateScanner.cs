@@ -358,8 +358,11 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
     {
         const int bufferSize = 1024 * 1024;
 
+        // We read in 1 MB chunks into a pooled buffer ourselves, so disable
+        // FileStream's own internal buffer (bufferSize 1) to avoid a redundant
+        // per-stream allocation.
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize, FileOptions.SequentialScan);
+            bufferSize: 1, FileOptions.SequentialScan);
 
         var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
         try
@@ -432,10 +435,11 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
     {
         const int bufferSize = 1024 * 1024;
 
+        // Disable FileStream's internal buffer; reads go through our own pooled buffers.
         using var fs1 = new FileStream(path1, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize, FileOptions.SequentialScan);
+            bufferSize: 1, FileOptions.SequentialScan);
         using var fs2 = new FileStream(path2, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize, FileOptions.SequentialScan);
+            bufferSize: 1, FileOptions.SequentialScan);
 
         if (fs1.Length != fs2.Length)
             return false;
