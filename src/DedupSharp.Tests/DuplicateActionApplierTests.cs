@@ -43,8 +43,10 @@ public class DuplicateActionApplierTests : IDisposable
         CanonicalPath = canonical,
         TargetPath = target,
         SizeBytes = new FileInfo(target).Length,
+        TargetSnapshotRecorded = true,
         TargetOriginalSizeBytes = new FileInfo(target).Length,
         TargetOriginalLastWriteTimeUtc = new FileInfo(target).LastWriteTimeUtc,
+        CanonicalSnapshotRecorded = true,
         CanonicalOriginalSizeBytes = new FileInfo(canonical).Length,
         CanonicalOriginalLastWriteTimeUtc = new FileInfo(canonical).LastWriteTimeUtc
     };
@@ -55,8 +57,10 @@ public class DuplicateActionApplierTests : IDisposable
         CanonicalPath = canonical,
         TargetPath = target,
         SizeBytes = new FileInfo(target).Length,
+        TargetSnapshotRecorded = true,
         TargetOriginalSizeBytes = new FileInfo(target).Length,
         TargetOriginalLastWriteTimeUtc = new FileInfo(target).LastWriteTimeUtc,
+        CanonicalSnapshotRecorded = true,
         CanonicalOriginalSizeBytes = new FileInfo(canonical).Length,
         CanonicalOriginalLastWriteTimeUtc = new FileInfo(canonical).LastWriteTimeUtc
     };
@@ -247,5 +251,61 @@ public class DuplicateActionApplierTests : IDisposable
         await Assert.That(result.Applied).IsEqualTo(2);
         await Assert.That(result.Skipped).IsEqualTo(0);
         await Assert.That(result.Failed).IsEqualTo(0);
+    }
+
+    // ---------- Drift: zero-byte target (M2) ----------
+
+    [Test]
+    public async Task DriftDetection_ZeroByteTarget_GrowsButMtimeUnchanged_Skips()
+    {
+        var canonical = WriteFile("canonical.txt", "");
+        var target = WriteFile("dup.txt", ""); // 0 bytes
+
+        var action = MakeMoveAction(canonical, target); // records size 0 + mtime
+        var originalMtime = new FileInfo(target).LastWriteTimeUtc;
+
+        // Grow the target but restore its mtime, so ONLY the size differs.
+        File.WriteAllText(target, "now has real content");
+        File.SetLastWriteTimeUtc(target, originalMtime);
+
+        var options = new DuplicateActionApplyOptions { DryRun = false, QuarantineDirectory = _quarantineDir };
+        var result = DuplicateActionApplier.Apply([action], options);
+
+        await Assert.That(File.Exists(target)).IsTrue();
+        await Assert.That(result.Applied).IsEqualTo(0);
+        await Assert.That(result.Skipped).IsEqualTo(1);
+    }
+
+    // ---------- ReplaceWithHardLink ----------
+
+    [Test]
+    public async Task HardLink_NoDryRun_ReplacesTargetWithLinkToCanonical()
+    {
+        var canonical = WriteFile("canonical.txt", "shared");
+        var target = WriteFile("dup.txt", "shared");
+
+        var action = new DupAction
+        {
+            Kind = DupActionKind.ReplaceWithHardLink,
+            CanonicalPath = canonical,
+            TargetPath = target,
+            CanonicalSnapshotRecorded = true,
+            CanonicalOriginalSizeBytes = new FileInfo(canonical).Length,
+            CanonicalOriginalLastWriteTimeUtc = new FileInfo(canonical).LastWriteTimeUtc,
+            TargetSnapshotRecorded = true,
+            TargetOriginalSizeBytes = new FileInfo(target).Length,
+            TargetOriginalLastWriteTimeUtc = new FileInfo(target).LastWriteTimeUtc
+        };
+
+        var options = new DuplicateActionApplyOptions { DryRun = false };
+        var result = DuplicateActionApplier.Apply([action], options);
+
+        await Assert.That(result.Applied).IsEqualTo(1);
+        await Assert.That(result.Failed).IsEqualTo(0);
+        await Assert.That(File.Exists(target)).IsTrue();
+
+        // Hard link: editing canonical is visible through target (same inode).
+        File.WriteAllText(canonical, "changed");
+        await Assert.That(File.ReadAllText(target)).IsEqualTo("changed");
     }
 }

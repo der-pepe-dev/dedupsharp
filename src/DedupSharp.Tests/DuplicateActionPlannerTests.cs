@@ -81,4 +81,27 @@ public class DuplicateActionPlannerTests
         foreach (var a in actions)
             await Assert.That(a.Kind).IsEqualTo(DupActionKind.MoveToQuarantine);
     }
+
+    [Test]
+    public async Task Planner_SkipsSelfPair_WhenDuplicatePathEqualsCanonical()
+    {
+        // A self-pair (same path twice) must never become a destructive action.
+        var group = new DuplicateGroup(
+            10,
+            new[]
+            {
+                new FileEntry("same.txt", 10),
+                new FileEntry("same.txt", 10)
+            });
+
+        var options = new DuplicateActionPlannerOptions
+        {
+            ActionKind = DupActionKind.Delete,
+            CanonicalByLexicalPath = true
+        };
+
+        var actions = DuplicateActionPlanner.Plan(new[] { group }, options);
+
+        await Assert.That(actions).IsEmpty();
+    }
 }

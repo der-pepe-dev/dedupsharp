@@ -42,6 +42,13 @@ public static class DuplicateActionPlanner
             for (int i = 1; i < ordered.Count; i++)
             {
                 var duplicate = ordered[i];
+
+                // Never act on the canonical file itself. A self-pair can arise from
+                // overlapping scan inputs; a destructive action here would hit the
+                // only copy.
+                if (PathsEqual(duplicate.Path, canonical.Path))
+                    continue;
+
                 var targetInfo = new FileInfo(duplicate.Path);
 
                 long targetSize = targetInfo.Exists ? targetInfo.Length : duplicate.Size;
@@ -55,9 +62,11 @@ public static class DuplicateActionPlanner
 
                     SizeBytes = group.SizeBytes,
 
+                    CanonicalSnapshotRecorded = true,
                     CanonicalOriginalSizeBytes = canonicalSize,
                     CanonicalOriginalLastWriteTimeUtc = canonicalMtimeUtc,
 
+                    TargetSnapshotRecorded = true,
                     TargetOriginalSizeBytes = targetSize,
                     TargetOriginalLastWriteTimeUtc = targetMtimeUtc
                 };
@@ -68,4 +77,9 @@ public static class DuplicateActionPlanner
 
         return result;
     }
+
+    private static bool PathsEqual(string a, string b) =>
+        string.Equals(a, b, OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal);
 }

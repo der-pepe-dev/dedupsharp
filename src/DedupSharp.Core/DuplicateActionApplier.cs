@@ -318,16 +318,14 @@ public static class DuplicateActionApplier
         reason = string.Empty;
 
         bool hasSnapshot =
-            action.CanonicalOriginalSizeBytes > 0 ||
-            action.CanonicalOriginalLastWriteTimeUtc.HasValue ||
-            action.TargetOriginalSizeBytes > 0 ||
-            action.TargetOriginalLastWriteTimeUtc.HasValue;
+            action.CanonicalSnapshotRecorded ||
+            action.TargetSnapshotRecorded;
 
         if (!hasSnapshot)
             return false;
 
         // Target checks
-        if (action.TargetOriginalSizeBytes > 0 || action.TargetOriginalLastWriteTimeUtc.HasValue)
+        if (action.TargetSnapshotRecorded)
         {
             var ti = new FileInfo(action.TargetPath);
             if (!ti.Exists)
@@ -336,7 +334,7 @@ public static class DuplicateActionApplier
                 return true;
             }
 
-            if (action.TargetOriginalSizeBytes > 0 && ti.Length != action.TargetOriginalSizeBytes)
+            if (ti.Length != action.TargetOriginalSizeBytes)
             {
                 reason = $"target size changed for {action.TargetPath}: {action.TargetOriginalSizeBytes} -> {ti.Length}";
                 return true;
@@ -353,7 +351,7 @@ public static class DuplicateActionApplier
         }
 
         // Canonical checks
-        if (action.CanonicalOriginalSizeBytes > 0 || action.CanonicalOriginalLastWriteTimeUtc.HasValue)
+        if (action.CanonicalSnapshotRecorded)
         {
             var ci = new FileInfo(action.CanonicalPath);
             if (!ci.Exists)
@@ -362,7 +360,7 @@ public static class DuplicateActionApplier
                 return true;
             }
 
-            if (action.CanonicalOriginalSizeBytes > 0 && ci.Length != action.CanonicalOriginalSizeBytes)
+            if (ci.Length != action.CanonicalOriginalSizeBytes)
             {
                 reason = $"canonical size changed for {action.CanonicalPath}: {action.CanonicalOriginalSizeBytes} -> {ci.Length}";
                 return true;
@@ -383,7 +381,7 @@ public static class DuplicateActionApplier
 
     // ----------------- P/Invoke -----------------
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [DllImport("kernel32.dll", EntryPoint = "CreateHardLink", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool CreateHardLinkWindows(
         string lpFileName,
         string lpExistingFileName,

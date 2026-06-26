@@ -29,7 +29,15 @@ public sealed class DupAction
     public long SizeBytes { get; init; }
 
     /// <summary>
-    /// Canonical file size at planning time (bytes). 0 means "not recorded".
+    /// Whether a canonical snapshot (size/mtime) was recorded at planning time.
+    /// Drift detection for the canonical file only runs when this is true, so a
+    /// 0-byte file is distinguished from "no snapshot".
+    /// </summary>
+    public bool CanonicalSnapshotRecorded { get; init; }
+
+    /// <summary>
+    /// Canonical file size at planning time (bytes). Meaningful only when
+    /// <see cref="CanonicalSnapshotRecorded"/> is true.
     /// </summary>
     public long CanonicalOriginalSizeBytes { get; init; }
 
@@ -39,7 +47,15 @@ public sealed class DupAction
     public DateTime? CanonicalOriginalLastWriteTimeUtc { get; init; }
 
     /// <summary>
-    /// Target file size at planning time (bytes). 0 means "not recorded".
+    /// Whether a target snapshot (size/mtime) was recorded at planning time.
+    /// Drift detection for the target only runs when this is true, so a 0-byte
+    /// file is distinguished from "no snapshot".
+    /// </summary>
+    public bool TargetSnapshotRecorded { get; init; }
+
+    /// <summary>
+    /// Target file size at planning time (bytes). Meaningful only when
+    /// <see cref="TargetSnapshotRecorded"/> is true.
     /// </summary>
     public long TargetOriginalSizeBytes { get; init; }
 

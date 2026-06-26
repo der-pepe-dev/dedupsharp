@@ -113,6 +113,12 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
     private IEnumerable<FileInfo> EnumerateCandidateFiles(ScanOptions options)
     {
+        // Dedupe by full path so overlapping inputs (a dir plus a file inside it,
+        // a dir plus a subdir, or the same path twice) never make a file a
+        // "duplicate" of itself, which could otherwise plan a destructive action
+        // whose target is the only copy. Comparison is case-insensitive on Windows.
+        var seen = new HashSet<string>(PathComparer);
+
         foreach (var root in options.Paths)
         {
             options.CancellationToken.ThrowIfCancellationRequested();
@@ -123,16 +129,26 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             if (File.Exists(root))
             {
                 var fi = new FileInfo(root);
-                if (IsCandidate(fi, options))
+                if (IsCandidate(fi, options) && seen.Add(fi.FullName))
                     yield return fi;
             }
             else if (Directory.Exists(root))
             {
                 foreach (var fi in EnumerateFromDirectory(new DirectoryInfo(root), options))
-                    yield return fi;
+                {
+                    if (seen.Add(fi.FullName))
+                        yield return fi;
+                }
             }
         }
     }
+
+    /// <summary>
+    /// Path comparer matching the host filesystem's case behaviour
+    /// (case-insensitive on Windows, case-sensitive elsewhere).
+    /// </summary>
+    internal static readonly StringComparer PathComparer =
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private IEnumerable<FileInfo> EnumerateFromDirectory(DirectoryInfo root, ScanOptions options)
     {
@@ -153,7 +169,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             {
                 files = current.GetFiles();
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
                 continue;
             }
@@ -180,7 +196,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             {
                 subDirs = current.GetDirectories();
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
                 continue;
             }
@@ -216,7 +232,10 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         ExactScanMode mode,
         System.Threading.CancellationToken cancellationToken)
     {
-        foreach (var kvp in sizeGroups)
+        // Deterministic output: iterate sizes in ascending order, and order the
+        // groups (and the files within each group) by path. A scan must give
+        // reproducible duplicate groups regardless of dictionary/filesystem order.
+        foreach (var kvp in sizeGroups.OrderBy(g => g.Key))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -226,60 +245,71 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             if (list.Count < 2)
                 continue;
 
-            switch (mode)
+            var rawGroups = mode switch
             {
-                case ExactScanMode.HashOnly:
-                    foreach (var group in GroupByHash(list, cancellationToken))
-                    {
-                        if (group.Count > 1)
-                            yield return new DuplicateGroup(size, group);
-                    }
-                    break;
+                ExactScanMode.HashOnly =>
+                    GroupByHash(list, cancellationToken),
 
-                case ExactScanMode.BinaryForPairs_HashForGroups:
-                    if (list.Count == 2)
-                    {
-                        var a = list[0];
-                        var b = list[1];
+                ExactScanMode.BinaryForPairs_HashForGroups =>
+                    BinaryForPairsHashForGroups(list, cancellationToken),
 
-                        if (FilesAreEqualBinary(a.Path, b.Path))
-                            yield return new DuplicateGroup(size, new[] { a, b });
-                    }
-                    else
-                    {
-                        foreach (var group in GroupByHash(list, cancellationToken))
-                        {
-                            if (group.Count > 1)
-                                yield return new DuplicateGroup(size, group);
-                        }
-                    }
-                    break;
+                ExactScanMode.HashWithBinaryVerification =>
+                    HashWithBinaryVerification(list, cancellationToken),
 
-                case ExactScanMode.HashWithBinaryVerification:
-                    foreach (var hashGroup in GroupByHash(list, cancellationToken))
-                    {
-                        if (hashGroup.Count < 2)
-                            continue;
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown ExactScanMode.")
+            };
 
-                        var canonical = hashGroup[0];
-                        var confirmed = new List<FileEntry> { canonical };
+            // Sort files within each group, drop non-groups, then order groups by first path.
+            var finalized = rawGroups
+                .Where(g => g.Count > 1)
+                .Select(g => g.OrderBy(f => f.Path, PathComparer).ToList())
+                .OrderBy(g => g[0].Path, PathComparer);
 
-                        for (int i = 1; i < hashGroup.Count; i++)
-                        {
-                            var candidate = hashGroup[i];
-                            if (FilesAreEqualBinary(canonical.Path, candidate.Path))
-                                confirmed.Add(candidate);
-                        }
-
-                        if (confirmed.Count > 1)
-                            yield return new DuplicateGroup(size, confirmed);
-                    }
-                    break;
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown ExactScanMode.");
-            }
+            foreach (var group in finalized)
+                yield return new DuplicateGroup(size, group);
         }
+    }
+
+    private static List<List<FileEntry>> BinaryForPairsHashForGroups(
+        List<FileEntry> list,
+        System.Threading.CancellationToken cancellationToken)
+    {
+        if (list.Count == 2)
+        {
+            return FilesAreEqualBinary(list[0].Path, list[1].Path, cancellationToken)
+                ? new List<List<FileEntry>> { new() { list[0], list[1] } }
+                : new List<List<FileEntry>>();
+        }
+
+        return GroupByHash(list, cancellationToken);
+    }
+
+    private static List<List<FileEntry>> HashWithBinaryVerification(
+        List<FileEntry> list,
+        System.Threading.CancellationToken cancellationToken)
+    {
+        var result = new List<List<FileEntry>>();
+
+        foreach (var hashGroup in GroupByHash(list, cancellationToken))
+        {
+            if (hashGroup.Count < 2)
+                continue;
+
+            var canonical = hashGroup[0];
+            var confirmed = new List<FileEntry> { canonical };
+
+            for (int i = 1; i < hashGroup.Count; i++)
+            {
+                var candidate = hashGroup[i];
+                if (FilesAreEqualBinary(canonical.Path, candidate.Path, cancellationToken))
+                    confirmed.Add(candidate);
+            }
+
+            if (confirmed.Count > 1)
+                result.Add(confirmed);
+        }
+
+        return result;
     }
 
     private static List<List<FileEntry>> GroupByHash(
@@ -292,7 +322,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var hash = ComputeSha256(f.Path);
+            var hash = ComputeSha256(f.Path, cancellationToken);
             var hashKey = Convert.ToHexString(hash);
             var withHash = f.WithHash(hash);
 
@@ -308,15 +338,29 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         return dict.Values.ToList();
     }
 
-    private static byte[] ComputeSha256(string path)
+    private static byte[] ComputeSha256(string path, System.Threading.CancellationToken cancellationToken)
     {
-        using var sha = SHA256.Create();
+        const int bufferSize = 1024 * 1024;
+
+        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
-            bufferSize: 1024 * 1024, FileOptions.SequentialScan);
-        return sha.ComputeHash(stream);
+            bufferSize, FileOptions.SequentialScan);
+
+        var buffer = new byte[bufferSize];
+        int read;
+        while ((read = stream.Read(buffer, 0, bufferSize)) > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            hasher.AppendData(buffer, 0, read);
+        }
+
+        return hasher.GetHashAndReset();
     }
 
-    private static bool FilesAreEqualBinary(string path1, string path2)
+    private static bool FilesAreEqualBinary(
+        string path1,
+        string path2,
+        System.Threading.CancellationToken cancellationToken = default)
     {
         const int bufferSize = 1024 * 1024;
 
@@ -334,6 +378,8 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
         while (remaining > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             int toRead = (int)Math.Min(bufferSize, remaining);
             fs1.ReadExactly(buffer1, 0, toRead);
             fs2.ReadExactly(buffer2, 0, toRead);

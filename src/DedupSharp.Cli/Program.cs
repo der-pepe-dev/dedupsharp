@@ -214,11 +214,8 @@ internal static class Program
         if (paths.Count == 0 && string.IsNullOrEmpty(planFile) && !doApply)
             throw new ArgumentException("No paths specified.");
 
-        if (!doPlan && !doApply)
-        {
-            // Default: scan only
-            doPlan = true;
-        }
+        // Default is scan-only (report duplicates). A plan file is written only when
+        // --plan is given explicitly, so a plain scan has no filesystem side effects.
 
         if (doApply && string.IsNullOrEmpty(planFile) && paths.Count == 0)
             throw new ArgumentException("Apply requires either --plan-file or scan paths to build a plan from.");
@@ -243,6 +240,12 @@ internal static class Program
 
             if (!assumeYes && !applyOptions.DryRun)
             {
+                if (Console.IsInputRedirected)
+                {
+                    Console.Error.WriteLine("Refusing to apply without confirmation on non-interactive input. Pass --yes to proceed.");
+                    return 1;
+                }
+
                 Console.Write($"About to apply {plan.Actions.Count} actions. Continue? [y/N]: ");
                 var key = Console.ReadKey();
                 Console.WriteLine();
@@ -350,6 +353,12 @@ internal static class Program
 
         if (!assumeYes && !applyOpts.DryRun)
         {
+            if (Console.IsInputRedirected)
+            {
+                Console.Error.WriteLine("Refusing to apply without confirmation on non-interactive input. Pass --yes to proceed.");
+                return 1;
+            }
+
             Console.Write($"About to apply {actions.Count} actions. Continue? [y/N]: ");
             var key = Console.ReadKey();
             Console.WriteLine();
@@ -403,7 +412,18 @@ internal static class Program
         if (!long.TryParse(numberPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
             return false;
 
-        bytes = value * multiplier;
+        if (value < 0)
+            return false;
+
+        try
+        {
+            bytes = checked(value * multiplier);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+
         return true;
     }
 
@@ -430,7 +450,7 @@ internal static class Program
         Console.WriteLine("                             hash+verify  = hash then binary-verify per group");
         Console.WriteLine();
         Console.WriteLine("Plan / apply:");
-        Console.WriteLine("  --plan                     Produce a plan file (default if only scanning)");
+        Console.WriteLine("  --plan                     Write a plan file (scan-only by default writes nothing)");
         Console.WriteLine("  --apply                    Apply actions (may be combined with --plan)");
         Console.WriteLine("  --plan-file <path>         Plan file to read/write (default: dedup.plan.dduplan)");
         Console.WriteLine();

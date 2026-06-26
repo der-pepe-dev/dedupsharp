@@ -245,4 +245,53 @@ public class ExactDuplicateScannerTests : IDisposable
 
         await Assert.That(() => _scanner.Scan(options).ToList()).Throws<OperationCanceledException>();
     }
+
+    // ---------- overlapping inputs (H1: must not self-duplicate) ----------
+
+    [Test]
+    public async Task Scanner_SameDirectoryTwice_NoSelfDuplicate()
+    {
+        WriteFile("only.txt", "unique content");
+
+        var options = new ScanOptions { Paths = [_tempDir, _tempDir], Recursive = true, UsePreScan = true };
+
+        var groups = _scanner.Scan(options).ToList();
+
+        await Assert.That(groups).IsEmpty();
+    }
+
+    [Test]
+    public async Task Scanner_DirectoryPlusFileInside_NoSelfDuplicate()
+    {
+        var f = WriteFile("a.txt", "abc");
+
+        var options = new ScanOptions { Paths = [_tempDir, f], Recursive = true, UsePreScan = true };
+
+        var groups = _scanner.Scan(options).ToList();
+
+        await Assert.That(groups).IsEmpty();
+    }
+
+    // ---------- deterministic ordering (M1) ----------
+
+    [Test]
+    public async Task Scanner_OutputOrdering_IsDeterministicAndSorted()
+    {
+        // Group "dupA": a,b,c ; group "dupB": y,z. Written out of order.
+        WriteFile("b.txt", "dupA");
+        WriteFile("c.txt", "dupA");
+        WriteFile("a.txt", "dupA");
+        WriteFile("z.txt", "dupB");
+        WriteFile("y.txt", "dupB");
+
+        var groups = _scanner.Scan(SingleDirOptions()).ToList();
+        var names = groups
+            .Select(g => string.Join(",", g.Files.Select(f => Path.GetFileName(f.Path))))
+            .ToList();
+
+        // Files sorted within each group; groups ordered by first path.
+        await Assert.That(names.Count).IsEqualTo(2);
+        await Assert.That(names[0]).IsEqualTo("a.txt,b.txt,c.txt");
+        await Assert.That(names[1]).IsEqualTo("y.txt,z.txt");
+    }
 }
