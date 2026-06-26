@@ -28,7 +28,8 @@ public class ExactScanModeBenchmarks
     [Params(
         HashAlgorithmKind.Sha256,
         HashAlgorithmKind.XxHash3,
-        HashAlgorithmKind.XxHash128)]
+        HashAlgorithmKind.XxHash128,
+        HashAlgorithmKind.Blake3)]
     public HashAlgorithmKind HashAlgorithm;
 
     [GlobalSetup]

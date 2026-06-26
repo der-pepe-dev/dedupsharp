@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Hashing;
 using System.Linq;
 using System.Security.Cryptography;
+using Blake3;
 
 namespace DedupSharp.Core.Exact;
 
@@ -286,7 +287,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
     }
 
     private static bool IsCryptographic(HashAlgorithmKind algorithm) =>
-        algorithm == HashAlgorithmKind.Sha256;
+        algorithm is HashAlgorithmKind.Sha256 or HashAlgorithmKind.Blake3;
 
     /// <summary>
     /// Splits a hash bucket into equivalence classes of binary-identical files.
@@ -382,6 +383,20 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
                 var hasher = new XxHash128();
                 AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
                 return hasher.GetHashAndReset();
+            }
+
+            case HashAlgorithmKind.Blake3:
+            {
+                // Hasher is a struct, so it cannot be captured in the AppendStream
+                // lambda (that would mutate a copy). Drive the read loop inline.
+                using var hasher = Hasher.New();
+                int read;
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    hasher.Update(buffer.AsSpan(0, read));
+                }
+                return hasher.Finalize().AsSpan().ToArray();
             }
 
             default:

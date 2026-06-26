@@ -252,6 +252,7 @@ public class ExactDuplicateScannerTests : IDisposable
     [Arguments(HashAlgorithmKind.Sha256)]
     [Arguments(HashAlgorithmKind.XxHash3)]
     [Arguments(HashAlgorithmKind.XxHash128)]
+    [Arguments(HashAlgorithmKind.Blake3)]
     public async Task Scanner_AllHashAlgorithms_FindDuplicateGroup(HashAlgorithmKind algorithm)
     {
         WriteFile("a.bin", "group content");
@@ -272,6 +273,7 @@ public class ExactDuplicateScannerTests : IDisposable
     [Arguments(HashAlgorithmKind.Sha256)]
     [Arguments(HashAlgorithmKind.XxHash3)]
     [Arguments(HashAlgorithmKind.XxHash128)]
+    [Arguments(HashAlgorithmKind.Blake3)]
     public async Task Scanner_AllHashAlgorithms_SameSizeDifferentContent_NoFalseDuplicates(HashAlgorithmKind algorithm)
     {
         // Same length, different content: must not be grouped (the non-crypto
