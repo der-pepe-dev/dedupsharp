@@ -18,4 +18,7 @@ Media (perceptual image) and audio (PCM/spectrogram) cores are planned, not impl
 ## Recent notes
 
 <!-- Append dated notes here, newest first: -->
+- 2026-06-26: Added `DedupSharp.Benchmarks` (BenchmarkDotNet) with an
+  `ExactScanMode` comparison benchmark; added GitHub Actions CI
+  (`.github/workflows/ci.yml`) that restores, Release-builds, and tests on push/PR.
 <!-- - YYYY-MM-DD: ... -->

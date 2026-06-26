@@ -54,3 +54,6 @@ TestResult.xml
 nunit-*.xml
 /TestData
 .vs/
+
+# BenchmarkDotNet output
+BenchmarkDotNet.Artifacts/
