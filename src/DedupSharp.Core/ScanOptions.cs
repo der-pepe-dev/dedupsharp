@@ -36,6 +36,12 @@ public sealed class ScanOptions
     public ExactScanMode ExactMode { get; set; } = ExactScanMode.BinaryForPairs_HashForGroups;
 
     /// <summary>
+    /// Hash algorithm used to bucket candidates. Non-cryptographic algorithms are
+    /// faster but are always followed by a binary-content split for correctness.
+    /// </summary>
+    public HashAlgorithmKind HashAlgorithm { get; set; } = HashAlgorithmKind.Sha256;
+
+    /// <summary>
     /// If non-empty, only files whose extension is in this set will be scanned.
     /// Extensions should be stored with the leading dot (e.g. ".txt").
     /// </summary>

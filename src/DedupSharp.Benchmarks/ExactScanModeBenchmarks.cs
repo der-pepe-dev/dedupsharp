@@ -25,6 +25,12 @@ public class ExactScanModeBenchmarks
         ExactScanMode.HashWithBinaryVerification)]
     public ExactScanMode Mode;
 
+    [Params(
+        HashAlgorithmKind.Sha256,
+        HashAlgorithmKind.XxHash3,
+        HashAlgorithmKind.XxHash128)]
+    public HashAlgorithmKind HashAlgorithm;
+
     [GlobalSetup]
     public void Setup()
     {
@@ -73,7 +79,8 @@ public class ExactScanModeBenchmarks
             Paths = [_root],
             Recursive = true,
             UsePreScan = true,
-            ExactMode = Mode
+            ExactMode = Mode,
+            HashAlgorithm = HashAlgorithm
         };
 
         return _scanner.Scan(options).Count();
