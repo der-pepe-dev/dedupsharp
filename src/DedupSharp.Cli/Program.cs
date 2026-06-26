@@ -245,6 +245,16 @@ internal static class Program
             Console.WriteLine("WARNING: --action delete specified without --allow-delete. Delete actions will fail.");
         }
 
+        // Ctrl+C cancels the scan/apply gracefully instead of killing the process.
+        // Set up before any apply path (including loading a saved plan below).
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true; // don't terminate immediately; let the token unwind
+            cts.Cancel();
+            Console.Error.WriteLine("Cancelling... (Ctrl+C)");
+        };
+
         // If we have a plan file and only apply was requested, load and apply.
         if (doApply && !string.IsNullOrEmpty(planFile) && paths.Count == 0)
         {
@@ -276,7 +286,17 @@ internal static class Program
                 }
             }
 
-            var result = DuplicateActionApplier.Apply(plan.Actions, applyOptions, s => Console.WriteLine(s));
+            DuplicateActionApplyResult result;
+            try
+            {
+                result = DuplicateActionApplier.Apply(plan.Actions, applyOptions, s => Console.WriteLine(s), cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.Error.WriteLine("Apply cancelled.");
+                return 130;
+            }
+
             Console.WriteLine(
                 $"Apply result: Total={result.TotalActions}, Applied={result.Applied}, Skipped={result.Skipped}, Failed={result.Failed}, DryRun={result.DryRun}");
             return 0;
@@ -284,15 +304,6 @@ internal static class Program
 
         // Otherwise: perform a scan, optionally write a plan, optionally apply it immediately.
         var scanner = new ExactDuplicateScanner();
-
-        // Ctrl+C cancels the scan/apply gracefully instead of killing the process.
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
-        {
-            e.Cancel = true; // don't terminate immediately; let the token unwind
-            cts.Cancel();
-            Console.Error.WriteLine("Cancelling... (Ctrl+C)");
-        };
 
         var scanOptions = new ScanOptions
         {
