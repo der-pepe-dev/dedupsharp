@@ -1,0 +1,34 @@
+root = true
+
+# All files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# C#
+[*.cs]
+indent_size = 4
+# Prefer file-scoped namespaces
+csharp_style_namespace_declarations = file_scoped:suggestion
+# var usage
+csharp_style_var_when_type_is_apparent = true:suggestion
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+# Modifier order
+csharp_preferred_modifier_order = public,private,protected,internal,static,readonly,sealed,override,async:suggestion
+# Namespace/using
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Project & config files
+[*.{csproj,props,targets,slnx}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
