@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 using DedupSharp.Core;
 using DedupSharp.Core.Exact;
@@ -46,6 +47,7 @@ internal static class Program
         var ignoredDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ignoredFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         ExactScanMode exactMode = ExactScanMode.BinaryForPairs_HashForGroups;
+        HashAlgorithmKind hashAlgorithm = HashAlgorithmKind.Sha256;
 
         bool doPlan = false;
         bool doApply = false;
@@ -139,6 +141,24 @@ internal static class Program
                             break;
                         }
 
+                    case "--hash":
+                        {
+                            if (i + 1 >= args.Length)
+                                throw new ArgumentException("--hash requires a value.");
+
+                            i++;
+                            var hashStr = args[i].ToLowerInvariant();
+                            hashAlgorithm = hashStr switch
+                            {
+                                "sha256" or "sha-256" => HashAlgorithmKind.Sha256,
+                                "xxhash3" or "xxh3" => HashAlgorithmKind.XxHash3,
+                                "xxhash128" or "xxh128" => HashAlgorithmKind.XxHash128,
+                                "blake3" or "b3" => HashAlgorithmKind.Blake3,
+                                _ => throw new ArgumentException($"Unknown hash algorithm: {args[i]}")
+                            };
+                            break;
+                        }
+
                     case "--plan":
                         doPlan = true;
                         break;
@@ -225,6 +245,16 @@ internal static class Program
             Console.WriteLine("WARNING: --action delete specified without --allow-delete. Delete actions will fail.");
         }
 
+        // Ctrl+C cancels the scan/apply gracefully instead of killing the process.
+        // Set up before any apply path (including loading a saved plan below).
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true; // don't terminate immediately; let the token unwind
+            cts.Cancel();
+            Console.Error.WriteLine("Cancelling... (Ctrl+C)");
+        };
+
         // If we have a plan file and only apply was requested, load and apply.
         if (doApply && !string.IsNullOrEmpty(planFile) && paths.Count == 0)
         {
@@ -256,7 +286,17 @@ internal static class Program
                 }
             }
 
-            var result = DuplicateActionApplier.Apply(plan.Actions, applyOptions, s => Console.WriteLine(s));
+            DuplicateActionApplyResult result;
+            try
+            {
+                result = DuplicateActionApplier.Apply(plan.Actions, applyOptions, s => Console.WriteLine(s), cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.Error.WriteLine("Apply cancelled.");
+                return 130;
+            }
+
             Console.WriteLine(
                 $"Apply result: Total={result.TotalActions}, Applied={result.Applied}, Skipped={result.Skipped}, Failed={result.Failed}, DryRun={result.DryRun}");
             return 0;
@@ -272,10 +312,12 @@ internal static class Program
             UsePreScan = usePreScan,
             MinFileSizeBytes = minSizeBytes,
             ExactMode = exactMode,
+            HashAlgorithm = hashAlgorithm,
             SafeExtensions = safeExtensions,
             IgnoredDirectoryNames = ignoredDirs,
             IgnoredFileNames = ignoredFiles,
             ProgressInterval = 1000,
+            CancellationToken = cts.Token,
             Progress = p =>
             {
                 if (!p.IsPhaseCompleted)
@@ -286,7 +328,16 @@ internal static class Program
         };
 
         Console.WriteLine("Scanning...");
-        var groups = scanner.Scan(scanOptions).ToList();
+        List<DuplicateGroup> groups;
+        try
+        {
+            groups = scanner.Scan(scanOptions).ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            Console.Error.WriteLine("Scan cancelled.");
+            return 130; // 128 + SIGINT
+        }
 
         if (groups.Count == 0)
         {
@@ -369,7 +420,17 @@ internal static class Program
             }
         }
 
-        var res = DuplicateActionApplier.Apply(actions, applyOpts, s => Console.WriteLine(s));
+        DuplicateActionApplyResult res;
+        try
+        {
+            res = DuplicateActionApplier.Apply(actions, applyOpts, s => Console.WriteLine(s), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Console.Error.WriteLine("Apply cancelled.");
+            return 130;
+        }
+
         Console.WriteLine(
             $"Apply result: Total={res.TotalActions}, Applied={res.Applied}, Skipped={res.Skipped}, Failed={res.Failed}, DryRun={res.DryRun}");
 
@@ -448,6 +509,9 @@ internal static class Program
         Console.WriteLine("                             binary       = binary compare for pairs, hash for groups (default)");
         Console.WriteLine("                             hash         = hash-only");
         Console.WriteLine("                             hash+verify  = hash then binary-verify per group");
+        Console.WriteLine("  --hash <algorithm>         sha256 (default), xxhash3, xxhash128, blake3.");
+        Console.WriteLine("                             Non-crypto hashes (xxhash*) are always binary-verified;");
+        Console.WriteLine("                             blake3 is cryptographic and trusted like sha256.");
         Console.WriteLine();
         Console.WriteLine("Plan / apply:");
         Console.WriteLine("  --plan                     Write a plan file (scan-only by default writes nothing)");
