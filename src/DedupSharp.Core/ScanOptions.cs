@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace DedupSharp.Core;
 
@@ -65,4 +66,14 @@ public sealed class ScanOptions
     /// Optional progress callback.
     /// </summary>
     public Action<ScanProgress>? Progress { get; set; }
+
+    /// <summary>
+    /// Token checked during scan enumeration and hash computation.
+    /// </summary>
+    public CancellationToken CancellationToken { get; set; } = CancellationToken.None;
+
+    /// <summary>
+    /// Reserved for future parallel scanning. Currently unused (scanner is sequential).
+    /// </summary>
+    public int MaxDegreeOfParallelism { get; set; } = 1;
 }

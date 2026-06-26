@@ -34,11 +34,9 @@ public static class DuplicateActionPlanner
             var canonical = ordered[0];
             var canonicalInfo = new FileInfo(canonical.Path);
 
-            DateTime? canonicalMtimeUtc = canonicalInfo.Exists
-                ? canonicalInfo.LastWriteTimeUtc
-                : null;
-
-            long canonicalSize = canonical.Size;
+            // Snapshot from disk at plan time so both size and mtime share the same baseline.
+            long canonicalSize = canonicalInfo.Exists ? canonicalInfo.Length : canonical.Size;
+            DateTime? canonicalMtimeUtc = canonicalInfo.Exists ? canonicalInfo.LastWriteTimeUtc : null;
 
             // For each other file, create an action with snapshot info
             for (int i = 1; i < ordered.Count; i++)
@@ -46,9 +44,8 @@ public static class DuplicateActionPlanner
                 var duplicate = ordered[i];
                 var targetInfo = new FileInfo(duplicate.Path);
 
-                DateTime? targetMtimeUtc = targetInfo.Exists
-                    ? targetInfo.LastWriteTimeUtc
-                    : null;
+                long targetSize = targetInfo.Exists ? targetInfo.Length : duplicate.Size;
+                DateTime? targetMtimeUtc = targetInfo.Exists ? targetInfo.LastWriteTimeUtc : null;
 
                 var action = new DupAction
                 {
@@ -56,13 +53,12 @@ public static class DuplicateActionPlanner
                     CanonicalPath = canonical.Path,
                     TargetPath = duplicate.Path,
 
-                    // Group size for tests/diagnostics
                     SizeBytes = group.SizeBytes,
 
                     CanonicalOriginalSizeBytes = canonicalSize,
                     CanonicalOriginalLastWriteTimeUtc = canonicalMtimeUtc,
 
-                    TargetOriginalSizeBytes = duplicate.Size,
+                    TargetOriginalSizeBytes = targetSize,
                     TargetOriginalLastWriteTimeUtc = targetMtimeUtc
                 };
 

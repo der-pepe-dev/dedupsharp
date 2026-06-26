@@ -11,8 +11,8 @@ public sealed class DuplicateActionPlannerOptions
     public DupActionKind ActionKind { get; init; } = DupActionKind.MoveToQuarantine;
 
     /// <summary>
-    /// When true (default), choose canonical by lexicographically smallest path.
-    /// If false, you could later plug in other strategies.
+    /// When true (default), choose canonical by lexicographically smallest path (case-insensitive).
+    /// When false, the first file in scan order becomes canonical.
     /// </summary>
     public bool CanonicalByLexicalPath { get; init; } = true;
 }

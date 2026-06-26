@@ -115,18 +115,16 @@ Minimal example of using `ExactDuplicateScanner`:
         SafeExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".mp4", ".mkv", ".jpg", ".png", ".mp3", ".flac"
+        },
+        ProgressInterval = 1000,
+        Progress = p =>
+        {
+            if (p.IsPhaseCompleted)
+                Console.WriteLine($"[{p.Phase}] Files={p.FilesScanned}, Bytes={p.BytesScanned}");
         }
     };
 
-    var progress = new Progress<ScanProgress>(p =>
-    {
-        if (!string.IsNullOrEmpty(p.CurrentPath))
-        {
-            Console.WriteLine($"Scanning: {p.CurrentPath}");
-        }
-    });
-
-    foreach (var group in scanner.Scan(options, progress))
+    foreach (var group in scanner.Scan(options))
     {
         Console.WriteLine($"[Exact duplicate group, size = {group.SizeBytes} bytes]");
         foreach (var f in group.Files)

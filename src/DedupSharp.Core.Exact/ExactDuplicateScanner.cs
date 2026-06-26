@@ -45,15 +45,10 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
                 sizeCounts[fi.Length] = 1;
 
             if (options.Progress is not null && preFiles % interval == 0)
-            {
                 options.Progress(new ScanProgress(ScanProgressPhase.PreScan, preFiles, preBytes, false));
-            }
         }
 
-        if (options.Progress is not null)
-        {
-            options.Progress(new ScanProgress(ScanProgressPhase.PreScan, preFiles, preBytes, true));
-        }
+        options.Progress?.Invoke(new ScanProgress(ScanProgressPhase.PreScan, preFiles, preBytes, true));
 
         // Second pass: only build entries for sizes with count > 1
         var sizeGroups = new Dictionary<long, List<FileEntry>>();
@@ -77,17 +72,12 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             list.Add(new FileEntry(fi.FullName, fi.Length));
 
             if (options.Progress is not null && files % interval == 0)
-            {
-                options.Progress(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, false));
-            }
+                options.Progress(new ScanProgress(ScanProgressPhase.CandidateScan, files, bytes, false));
         }
 
-        if (options.Progress is not null)
-        {
-            options.Progress(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, true));
-        }
+        options.Progress?.Invoke(new ScanProgress(ScanProgressPhase.CandidateScan, files, bytes, true));
 
-        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode);
+        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.CancellationToken);
     }
 
     private IEnumerable<DuplicateGroup> ScanSinglePass(ScanOptions options)
@@ -111,17 +101,12 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             list.Add(new FileEntry(fi.FullName, fi.Length));
 
             if (options.Progress is not null && files % interval == 0)
-            {
                 options.Progress(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, false));
-            }
         }
 
-        if (options.Progress is not null)
-        {
-            options.Progress(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, true));
-        }
+        options.Progress?.Invoke(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, true));
 
-        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode);
+        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.CancellationToken);
     }
 
     // ----------------- Candidate enumeration -----------------
@@ -130,6 +115,8 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
     {
         foreach (var root in options.Paths)
         {
+            options.CancellationToken.ThrowIfCancellationRequested();
+
             if (string.IsNullOrWhiteSpace(root))
                 continue;
 
@@ -154,6 +141,8 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
         while (stack.Count > 0)
         {
+            options.CancellationToken.ThrowIfCancellationRequested();
+
             var current = stack.Pop();
 
             if (options.IgnoredDirectoryNames.Contains(current.Name))
@@ -171,6 +160,9 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
             foreach (var fi in files)
             {
+                if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+                    continue;
+
                 if (options.IgnoredFileNames.Contains(fi.Name))
                     continue;
 
@@ -195,6 +187,9 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
             foreach (var sub in subDirs)
             {
+                if ((sub.Attributes & FileAttributes.ReparsePoint) != 0)
+                    continue;
+
                 stack.Push(sub);
             }
         }
@@ -202,15 +197,14 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
     private static bool IsCandidate(FileInfo fi, ScanOptions options)
     {
+        if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+            return false;
+
         if (fi.Length < options.MinFileSizeBytes)
             return false;
 
-        if (options.SafeExtensions.Count > 0)
-        {
-            // Only allow files whose extension is in SafeExtensions
-            if (!options.SafeExtensions.Contains(fi.Extension))
-                return false;
-        }
+        if (options.SafeExtensions.Count > 0 && !options.SafeExtensions.Contains(fi.Extension))
+            return false;
 
         return true;
     }
@@ -219,10 +213,13 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
     private static IEnumerable<DuplicateGroup> BuildGroupsFromSizeGroups(
         Dictionary<long, List<FileEntry>> sizeGroups,
-        ExactScanMode mode)
+        ExactScanMode mode,
+        System.Threading.CancellationToken cancellationToken)
     {
         foreach (var kvp in sizeGroups)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var size = kvp.Key;
             var list = kvp.Value;
 
@@ -232,7 +229,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             switch (mode)
             {
                 case ExactScanMode.HashOnly:
-                    foreach (var group in GroupByHash(list))
+                    foreach (var group in GroupByHash(list, cancellationToken))
                     {
                         if (group.Count > 1)
                             yield return new DuplicateGroup(size, group);
@@ -246,13 +243,11 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
                         var b = list[1];
 
                         if (FilesAreEqualBinary(a.Path, b.Path))
-                        {
                             yield return new DuplicateGroup(size, new[] { a, b });
-                        }
                     }
                     else
                     {
-                        foreach (var group in GroupByHash(list))
+                        foreach (var group in GroupByHash(list, cancellationToken))
                         {
                             if (group.Count > 1)
                                 yield return new DuplicateGroup(size, group);
@@ -261,7 +256,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
                     break;
 
                 case ExactScanMode.HashWithBinaryVerification:
-                    foreach (var hashGroup in GroupByHash(list))
+                    foreach (var hashGroup in GroupByHash(list, cancellationToken))
                     {
                         if (hashGroup.Count < 2)
                             continue;
@@ -273,9 +268,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
                         {
                             var candidate = hashGroup[i];
                             if (FilesAreEqualBinary(canonical.Path, candidate.Path))
-                            {
                                 confirmed.Add(candidate);
-                            }
                         }
 
                         if (confirmed.Count > 1)
@@ -289,12 +282,16 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         }
     }
 
-    private static List<List<FileEntry>> GroupByHash(List<FileEntry> files)
+    private static List<List<FileEntry>> GroupByHash(
+        List<FileEntry> files,
+        System.Threading.CancellationToken cancellationToken)
     {
         var dict = new Dictionary<string, List<FileEntry>>(StringComparer.Ordinal);
 
         foreach (var f in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var hash = ComputeSha256(f.Path);
             var hashKey = Convert.ToHexString(hash);
             var withHash = f.WithHash(hash);
@@ -333,23 +330,18 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
         var buffer1 = new byte[bufferSize];
         var buffer2 = new byte[bufferSize];
+        long remaining = fs1.Length;
 
-        while (true)
+        while (remaining > 0)
         {
-            var read1 = fs1.Read(buffer1, 0, buffer1.Length);
-            var read2 = fs2.Read(buffer2, 0, buffer2.Length);
+            int toRead = (int)Math.Min(bufferSize, remaining);
+            fs1.ReadExactly(buffer1, 0, toRead);
+            fs2.ReadExactly(buffer2, 0, toRead);
 
-            if (read1 != read2)
+            if (!buffer1.AsSpan(0, toRead).SequenceEqual(buffer2.AsSpan(0, toRead)))
                 return false;
 
-            if (read1 == 0)
-                break;
-
-            for (int i = 0; i < read1; i++)
-            {
-                if (buffer1[i] != buffer2[i])
-                    return false;
-            }
+            remaining -= toRead;
         }
 
         return true;

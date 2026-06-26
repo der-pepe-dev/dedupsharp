@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace DedupSharp.Core;
 
@@ -15,18 +16,21 @@ public static class DuplicateActionApplier
     public static DuplicateActionApplyResult Apply(
         IEnumerable<DupAction> actions,
         DuplicateActionApplyOptions options,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
         if (actions is null) throw new ArgumentNullException(nameof(actions));
         if (options is null) throw new ArgumentNullException(nameof(options));
 
         int total = 0;
         int applied = 0;
+        int dryRunApplied = 0;
         int skipped = 0;
         int failed = 0;
 
         foreach (var action in actions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             total++;
 
             try
@@ -34,15 +38,15 @@ public static class DuplicateActionApplier
                 switch (action.Kind)
                 {
                     case DupActionKind.MoveToQuarantine:
-                        ApplyMoveToQuarantine(action, options, ref applied, ref skipped, log);
+                        ApplyMoveToQuarantine(action, options, ref applied, ref dryRunApplied, ref skipped, log);
                         break;
 
                     case DupActionKind.Delete:
-                        ApplyDelete(action, options, ref applied, ref skipped, log);
+                        ApplyDelete(action, options, ref applied, ref dryRunApplied, ref skipped, log);
                         break;
 
                     case DupActionKind.ReplaceWithHardLink:
-                        ApplyHardLink(action, options, ref applied, ref skipped, log);
+                        ApplyHardLink(action, options, ref applied, ref dryRunApplied, ref skipped, log);
                         break;
 
                     default:
@@ -62,6 +66,7 @@ public static class DuplicateActionApplier
         {
             TotalActions = total,
             Applied = applied,
+            DryRunApplied = dryRunApplied,
             Skipped = skipped,
             Failed = failed,
             DryRun = options.DryRun
@@ -74,11 +79,16 @@ public static class DuplicateActionApplier
         DupAction action,
         DuplicateActionApplyOptions options,
         ref int applied,
+        ref int dryRunApplied,
         ref int skipped,
         Action<string>? log)
     {
         if (string.IsNullOrWhiteSpace(options.QuarantineDirectory))
-            throw new InvalidOperationException("QuarantineDirectory must be set for MoveToQuarantine.");
+        {
+            skipped++;
+            log?.Invoke($"SKIP  MoveToQuarantine (QuarantineDirectory not set): {action.TargetPath}");
+            return;
+        }
 
         if (HasDrifted(action, out var driftReason))
         {
@@ -97,24 +107,18 @@ public static class DuplicateActionApplier
 
         var quarantineDir = Path.GetFullPath(options.QuarantineDirectory);
         var fileName = Path.GetFileName(targetPath);
-        var destDir = quarantineDir;
-        var destPath = Path.Combine(destDir, fileName);
+        var destPath = Path.Combine(quarantineDir, fileName);
 
+        // Resolve unique destination path (same logic for real and dry-run so the log is accurate).
         if (!options.DryRun)
-        {
-            Directory.CreateDirectory(destDir);
-            destPath = GetUniquePath(destPath);
-        }
-        else
-        {
-            // For dry-run, also show the unique path we would pick
-            destPath = GetUniquePath(destPath);
-        }
+            Directory.CreateDirectory(quarantineDir);
+
+        destPath = GetUniquePath(destPath);
 
         if (options.DryRun)
         {
-            skipped++;
-            log?.Invoke($"DRY  MoveToQuarantine: {targetPath} -> {destPath}");
+            dryRunApplied++;
+            log?.Invoke($"DRY   MoveToQuarantine: {targetPath} -> {destPath}");
             return;
         }
 
@@ -149,12 +153,16 @@ public static class DuplicateActionApplier
         DupAction action,
         DuplicateActionApplyOptions options,
         ref int applied,
+        ref int dryRunApplied,
         ref int skipped,
         Action<string>? log)
     {
         if (!options.AllowDelete)
-            throw new InvalidOperationException(
-                "Delete is not allowed. Set AllowDelete=true in DuplicateActionApplyOptions.");
+        {
+            skipped++;
+            log?.Invoke($"SKIP  Delete (AllowDelete=false): {action.TargetPath}");
+            return;
+        }
 
         if (HasDrifted(action, out var driftReason))
         {
@@ -173,8 +181,8 @@ public static class DuplicateActionApplier
 
         if (options.DryRun)
         {
-            skipped++;
-            log?.Invoke($"DRY  Delete: {targetPath}");
+            dryRunApplied++;
+            log?.Invoke($"DRY   Delete: {targetPath}");
             return;
         }
 
@@ -189,6 +197,7 @@ public static class DuplicateActionApplier
         DupAction action,
         DuplicateActionApplyOptions options,
         ref int applied,
+        ref int dryRunApplied,
         ref int skipped,
         Action<string>? log)
     {
@@ -218,8 +227,8 @@ public static class DuplicateActionApplier
 
         if (options.DryRun)
         {
-            skipped++;
-            log?.Invoke($"DRY  HardLink: {target} -> {canonical}");
+            dryRunApplied++;
+            log?.Invoke($"DRY   HardLink: {target} -> {canonical}");
             return;
         }
 
@@ -234,19 +243,16 @@ public static class DuplicateActionApplier
                 if (!CreateHardLinkWindows(target, canonical, IntPtr.Zero))
                 {
                     var err = Marshal.GetLastWin32Error();
-                    // rollback
                     RestoreBackupIfNeeded(backupPath, target);
                     throw new IOException($"CreateHardLink failed with Win32 error {err} for {target}");
                 }
             }
             else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
             {
-                // link(canonical, target)
                 int result = LinkUnix(canonical, target);
                 if (result != 0)
                 {
                     var err = Marshal.GetLastWin32Error();
-                    // rollback
                     RestoreBackupIfNeeded(backupPath, target);
 
                     if (err == 18) // EXDEV: cross-device link (common on ZFS datasets)
@@ -257,20 +263,16 @@ public static class DuplicateActionApplier
             }
             else
             {
-                // rollback
                 RestoreBackupIfNeeded(backupPath, target);
                 throw new PlatformNotSupportedException("Hardlink creation is not supported on this platform.");
             }
 
-            // Hardlink succeeded, we can safely delete the backup.
             File.Delete(backupPath);
-
             applied++;
             log?.Invoke($"APPLY HardLink: {target} -> {canonical}");
         }
         catch
         {
-            // Best-effort rollback if something unexpected happened.
             RestoreBackupIfNeeded(backupPath, target);
             throw;
         }
@@ -297,9 +299,7 @@ public static class DuplicateActionApplier
         try
         {
             if (File.Exists(backupPath) && !File.Exists(originalPath))
-            {
                 File.Move(backupPath, originalPath);
-            }
         }
         catch
         {
@@ -311,7 +311,7 @@ public static class DuplicateActionApplier
 
     /// <summary>
     /// Checks whether either canonical or target has changed since planning (size/mtime).
-    /// If no snapshot fields are populated, returns false (drift check disabled).
+    /// Returns false when no snapshot fields are populated (drift check disabled for old plans).
     /// </summary>
     private static bool HasDrifted(DupAction action, out string reason)
     {
@@ -323,7 +323,6 @@ public static class DuplicateActionApplier
             action.TargetOriginalSizeBytes > 0 ||
             action.TargetOriginalLastWriteTimeUtc.HasValue;
 
-        // Old plan files (no snapshot info): no drift protection.
         if (!hasSnapshot)
             return false;
 
@@ -339,8 +338,7 @@ public static class DuplicateActionApplier
 
             if (action.TargetOriginalSizeBytes > 0 && ti.Length != action.TargetOriginalSizeBytes)
             {
-                reason =
-                    $"target size changed for {action.TargetPath}: {action.TargetOriginalSizeBytes} -> {ti.Length}";
+                reason = $"target size changed for {action.TargetPath}: {action.TargetOriginalSizeBytes} -> {ti.Length}";
                 return true;
             }
 
@@ -366,8 +364,7 @@ public static class DuplicateActionApplier
 
             if (action.CanonicalOriginalSizeBytes > 0 && ci.Length != action.CanonicalOriginalSizeBytes)
             {
-                reason =
-                    $"canonical size changed for {action.CanonicalPath}: {action.CanonicalOriginalSizeBytes} -> {ci.Length}";
+                reason = $"canonical size changed for {action.CanonicalPath}: {action.CanonicalOriginalSizeBytes} -> {ci.Length}";
                 return true;
             }
 
@@ -386,14 +383,12 @@ public static class DuplicateActionApplier
 
     // ----------------- P/Invoke -----------------
 
-    // Windows: CreateHardLinkW
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool CreateHardLinkWindows(
         string lpFileName,
         string lpExistingFileName,
         IntPtr lpSecurityAttributes);
 
-    // Unix: int link(const char *oldpath, const char *newpath);
     [DllImport("libc", EntryPoint = "link", SetLastError = true, CharSet = CharSet.Ansi)]
     private static extern int LinkUnix(string oldpath, string newpath);
 }

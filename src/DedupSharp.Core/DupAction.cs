@@ -14,15 +14,6 @@ public sealed class DupAction
     public DupActionKind Kind { get; init; }
 
     /// <summary>
-    /// Backwards-compat alias for <see cref="Kind"/> that can be used by older code/tests.
-    /// </summary>
-    public DupActionKind DuplicateKind
-    {
-        get => Kind;
-        init => Kind = value;
-    }
-
-    /// <summary>
     /// The file we keep in the group (canonical).
     /// </summary>
     public string CanonicalPath { get; init; } = string.Empty;

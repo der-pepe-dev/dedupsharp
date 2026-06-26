@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DedupSharp.Core;
 
@@ -36,10 +37,13 @@ public sealed class DuplicatePlanMetadata
 /// </summary>
 public static class DuplicatePlanFile
 {
+    internal const int CurrentVersion = 1;
+
     private static readonly JsonSerializerOptions s_jsonOptions = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter() }
     };
 
     public static void Save(string path, DuplicatePlan plan)
@@ -67,6 +71,10 @@ public static class DuplicatePlanFile
         var plan = JsonSerializer.Deserialize<DuplicatePlan>(json, s_jsonOptions);
         if (plan is null)
             throw new InvalidOperationException($"Failed to deserialize plan file '{fullPath}'.");
+
+        if (plan.Version != CurrentVersion)
+            throw new InvalidOperationException(
+                $"Unsupported plan version {plan.Version} in '{fullPath}'. Expected {CurrentVersion}.");
 
         return plan;
     }

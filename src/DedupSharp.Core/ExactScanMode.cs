@@ -1,8 +1,11 @@
+using System.Text.Json.Serialization;
+
 namespace DedupSharp.Core;
 
 /// <summary>
 /// Exact duplicate detection strategy.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ExactScanMode
 {
     /// <summary>

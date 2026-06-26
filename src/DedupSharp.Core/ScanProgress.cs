@@ -8,7 +8,10 @@ namespace DedupSharp.Core;
 public enum ScanProgressPhase
 {
     PreScan = 0,
-    SinglePass = 1
+    /// <summary>Second pass in pre-scan mode: builds detailed entries for candidate sizes only.</summary>
+    CandidateScan = 1,
+    /// <summary>Single-pass mode (no pre-scan): one pass over all files.</summary>
+    SinglePass = 2
 }
 
 /// <summary>
