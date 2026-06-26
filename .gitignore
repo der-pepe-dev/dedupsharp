@@ -57,3 +57,6 @@ nunit-*.xml
 
 # BenchmarkDotNet output
 BenchmarkDotNet.Artifacts/
+
+# Host-specific environment snapshot (regenerated per machine via scripts/snapshot-environment.sh)
+docs/environment.md
