@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Hashing;
@@ -360,47 +361,53 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             bufferSize, FileOptions.SequentialScan);
 
-        var buffer = new byte[bufferSize];
-
-        switch (algorithm)
+        var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+        try
         {
-            case HashAlgorithmKind.Sha256:
+            switch (algorithm)
             {
-                using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                AppendStream(stream, buffer, hasher.AppendData, cancellationToken);
-                return hasher.GetHashAndReset();
-            }
-
-            case HashAlgorithmKind.XxHash3:
-            {
-                var hasher = new XxHash3();
-                AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
-                return hasher.GetHashAndReset();
-            }
-
-            case HashAlgorithmKind.XxHash128:
-            {
-                var hasher = new XxHash128();
-                AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
-                return hasher.GetHashAndReset();
-            }
-
-            case HashAlgorithmKind.Blake3:
-            {
-                // Hasher is a struct, so it cannot be captured in the AppendStream
-                // lambda (that would mutate a copy). Drive the read loop inline.
-                using var hasher = Hasher.New();
-                int read;
-                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                case HashAlgorithmKind.Sha256:
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    hasher.Update(buffer.AsSpan(0, read));
+                    using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                    AppendStream(stream, buffer, hasher.AppendData, cancellationToken);
+                    return hasher.GetHashAndReset();
                 }
-                return hasher.Finalize().AsSpan().ToArray();
-            }
 
-            default:
-                throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm, "Unknown HashAlgorithmKind.");
+                case HashAlgorithmKind.XxHash3:
+                {
+                    var hasher = new XxHash3();
+                    AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
+                    return hasher.GetHashAndReset();
+                }
+
+                case HashAlgorithmKind.XxHash128:
+                {
+                    var hasher = new XxHash128();
+                    AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
+                    return hasher.GetHashAndReset();
+                }
+
+                case HashAlgorithmKind.Blake3:
+                {
+                    // Hasher is a struct, so it cannot be captured in the AppendStream
+                    // lambda (that would mutate a copy). Drive the read loop inline.
+                    using var hasher = Hasher.New();
+                    int read;
+                    while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        hasher.Update(buffer.AsSpan(0, read));
+                    }
+                    return hasher.Finalize().AsSpan().ToArray();
+                }
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm, "Unknown HashAlgorithmKind.");
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -433,24 +440,32 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         if (fs1.Length != fs2.Length)
             return false;
 
-        var buffer1 = new byte[bufferSize];
-        var buffer2 = new byte[bufferSize];
-        long remaining = fs1.Length;
-
-        while (remaining > 0)
+        var buffer1 = ArrayPool<byte>.Shared.Rent(bufferSize);
+        var buffer2 = ArrayPool<byte>.Shared.Rent(bufferSize);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            long remaining = fs1.Length;
 
-            int toRead = (int)Math.Min(bufferSize, remaining);
-            fs1.ReadExactly(buffer1, 0, toRead);
-            fs2.ReadExactly(buffer2, 0, toRead);
+            while (remaining > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
 
-            if (!buffer1.AsSpan(0, toRead).SequenceEqual(buffer2.AsSpan(0, toRead)))
-                return false;
+                int toRead = (int)Math.Min(bufferSize, remaining);
+                fs1.ReadExactly(buffer1, 0, toRead);
+                fs2.ReadExactly(buffer2, 0, toRead);
 
-            remaining -= toRead;
+                if (!buffer1.AsSpan(0, toRead).SequenceEqual(buffer2.AsSpan(0, toRead)))
+                    return false;
+
+                remaining -= toRead;
+            }
+
+            return true;
         }
-
-        return true;
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer1);
+            ArrayPool<byte>.Shared.Return(buffer2);
+        }
     }
 }
