@@ -10,4 +10,10 @@ Durable, prioritized task list. Active work goes in `tasks/<task-name>.md`, not 
 
 ## Medium priority
 
+- [ ] Add BLAKE3 as a `HashAlgorithmKind` (follow-up to feat/faster-hashing / PR #3).
+      BLAKE3 is cryptographic + SIMD-fast, so it can be `IsCryptographic => true`
+      (trusted for grouping, no mandatory binary-verify) — potentially the best
+      default. Needs a native-lib NuGet (e.g. `Blake3` by xoofx); weigh the native
+      dependency against the project's "simple, portable core" principle.
+
 ## Low priority / someday
