@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Hashing;
 using System.Linq;
 using System.Security.Cryptography;
 
@@ -77,7 +78,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
         options.Progress?.Invoke(new ScanProgress(ScanProgressPhase.CandidateScan, files, bytes, true));
 
-        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.CancellationToken);
+        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.HashAlgorithm, options.CancellationToken);
     }
 
     private IEnumerable<DuplicateGroup> ScanSinglePass(ScanOptions options)
@@ -106,7 +107,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
 
         options.Progress?.Invoke(new ScanProgress(ScanProgressPhase.SinglePass, files, bytes, true));
 
-        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.CancellationToken);
+        return BuildGroupsFromSizeGroups(sizeGroups, options.ExactMode, options.HashAlgorithm, options.CancellationToken);
     }
 
     // ----------------- Candidate enumeration -----------------
@@ -230,8 +231,15 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
     private static IEnumerable<DuplicateGroup> BuildGroupsFromSizeGroups(
         Dictionary<long, List<FileEntry>> sizeGroups,
         ExactScanMode mode,
+        HashAlgorithmKind hashAlgorithm,
         System.Threading.CancellationToken cancellationToken)
     {
+        // A non-cryptographic hash only buckets candidates; buckets must then be
+        // split by binary content. SHA-256 is trusted unless the caller asks for
+        // explicit verification.
+        bool verify = mode == ExactScanMode.HashWithBinaryVerification
+                      || !IsCryptographic(hashAlgorithm);
+
         // Deterministic output: iterate sizes in ascending order, and order the
         // groups (and the files within each group) by path. A scan must give
         // reproducible duplicate groups regardless of dictionary/filesystem order.
@@ -245,19 +253,29 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
             if (list.Count < 2)
                 continue;
 
-            var rawGroups = mode switch
+            List<List<FileEntry>> rawGroups;
+
+            if (mode == ExactScanMode.BinaryForPairs_HashForGroups && list.Count == 2)
             {
-                ExactScanMode.HashOnly =>
-                    GroupByHash(list, cancellationToken),
+                // A pair is settled by a single binary compare; no hashing needed.
+                rawGroups = FilesAreEqualBinary(list[0].Path, list[1].Path, cancellationToken)
+                    ? new List<List<FileEntry>> { new() { list[0], list[1] } }
+                    : new List<List<FileEntry>>();
+            }
+            else
+            {
+                rawGroups = new List<List<FileEntry>>();
+                foreach (var bucket in GroupByHash(list, hashAlgorithm, cancellationToken))
+                {
+                    if (bucket.Count < 2)
+                        continue;
 
-                ExactScanMode.BinaryForPairs_HashForGroups =>
-                    BinaryForPairsHashForGroups(list, cancellationToken),
-
-                ExactScanMode.HashWithBinaryVerification =>
-                    HashWithBinaryVerification(list, cancellationToken),
-
-                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown ExactScanMode.")
-            };
+                    if (verify)
+                        rawGroups.AddRange(PartitionByBinaryContent(bucket, cancellationToken));
+                    else
+                        rawGroups.Add(bucket);
+                }
+            }
 
             // Sort files within each group, drop non-groups, then order groups by first path.
             var finalized = rawGroups
@@ -270,50 +288,46 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         }
     }
 
-    private static List<List<FileEntry>> BinaryForPairsHashForGroups(
-        List<FileEntry> list,
+    private static bool IsCryptographic(HashAlgorithmKind algorithm) =>
+        algorithm == HashAlgorithmKind.Sha256;
+
+    /// <summary>
+    /// Splits a hash bucket into equivalence classes of binary-identical files.
+    /// Each candidate is compared against the representative of each existing class,
+    /// so genuine hash collisions (different content) form separate classes rather
+    /// than being silently dropped.
+    /// </summary>
+    private static List<List<FileEntry>> PartitionByBinaryContent(
+        List<FileEntry> bucket,
         System.Threading.CancellationToken cancellationToken)
     {
-        if (list.Count == 2)
+        var classes = new List<List<FileEntry>>();
+
+        foreach (var f in bucket)
         {
-            return FilesAreEqualBinary(list[0].Path, list[1].Path, cancellationToken)
-                ? new List<List<FileEntry>> { new() { list[0], list[1] } }
-                : new List<List<FileEntry>>();
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return GroupByHash(list, cancellationToken);
-    }
-
-    private static List<List<FileEntry>> HashWithBinaryVerification(
-        List<FileEntry> list,
-        System.Threading.CancellationToken cancellationToken)
-    {
-        var result = new List<List<FileEntry>>();
-
-        foreach (var hashGroup in GroupByHash(list, cancellationToken))
-        {
-            if (hashGroup.Count < 2)
-                continue;
-
-            var canonical = hashGroup[0];
-            var confirmed = new List<FileEntry> { canonical };
-
-            for (int i = 1; i < hashGroup.Count; i++)
+            bool placed = false;
+            foreach (var cls in classes)
             {
-                var candidate = hashGroup[i];
-                if (FilesAreEqualBinary(canonical.Path, candidate.Path, cancellationToken))
-                    confirmed.Add(candidate);
+                if (FilesAreEqualBinary(cls[0].Path, f.Path, cancellationToken))
+                {
+                    cls.Add(f);
+                    placed = true;
+                    break;
+                }
             }
 
-            if (confirmed.Count > 1)
-                result.Add(confirmed);
+            if (!placed)
+                classes.Add(new List<FileEntry> { f });
         }
 
-        return result;
+        return classes;
     }
 
     private static List<List<FileEntry>> GroupByHash(
         List<FileEntry> files,
+        HashAlgorithmKind hashAlgorithm,
         System.Threading.CancellationToken cancellationToken)
     {
         var dict = new Dictionary<string, List<FileEntry>>(StringComparer.Ordinal);
@@ -322,7 +336,7 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var hash = ComputeSha256(f.Path, cancellationToken);
+            var hash = ComputeHash(f.Path, hashAlgorithm, cancellationToken);
             var hashKey = Convert.ToHexString(hash);
             var withHash = f.WithHash(hash);
 
@@ -338,23 +352,58 @@ public sealed class ExactDuplicateScanner : IDuplicateScanner
         return dict.Values.ToList();
     }
 
-    private static byte[] ComputeSha256(string path, System.Threading.CancellationToken cancellationToken)
+    private static byte[] ComputeHash(
+        string path,
+        HashAlgorithmKind algorithm,
+        System.Threading.CancellationToken cancellationToken)
     {
         const int bufferSize = 1024 * 1024;
 
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
             bufferSize, FileOptions.SequentialScan);
 
         var buffer = new byte[bufferSize];
+
+        switch (algorithm)
+        {
+            case HashAlgorithmKind.Sha256:
+            {
+                using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                AppendStream(stream, buffer, hasher.AppendData, cancellationToken);
+                return hasher.GetHashAndReset();
+            }
+
+            case HashAlgorithmKind.XxHash3:
+            {
+                var hasher = new XxHash3();
+                AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
+                return hasher.GetHashAndReset();
+            }
+
+            case HashAlgorithmKind.XxHash128:
+            {
+                var hasher = new XxHash128();
+                AppendStream(stream, buffer, (b, o, c) => hasher.Append(b.AsSpan(o, c)), cancellationToken);
+                return hasher.GetHashAndReset();
+            }
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm, "Unknown HashAlgorithmKind.");
+        }
+    }
+
+    private static void AppendStream(
+        Stream stream,
+        byte[] buffer,
+        Action<byte[], int, int> append,
+        System.Threading.CancellationToken cancellationToken)
+    {
         int read;
-        while ((read = stream.Read(buffer, 0, bufferSize)) > 0)
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            hasher.AppendData(buffer, 0, read);
+            append(buffer, 0, read);
         }
-
-        return hasher.GetHashAndReset();
     }
 
     private static bool FilesAreEqualBinary(

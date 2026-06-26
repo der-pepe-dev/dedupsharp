@@ -246,6 +246,48 @@ public class ExactDuplicateScannerTests : IDisposable
         await Assert.That(() => _scanner.Scan(options).ToList()).Throws<OperationCanceledException>();
     }
 
+    // ---------- hash algorithms ----------
+
+    [Test]
+    [Arguments(HashAlgorithmKind.Sha256)]
+    [Arguments(HashAlgorithmKind.XxHash3)]
+    [Arguments(HashAlgorithmKind.XxHash128)]
+    public async Task Scanner_AllHashAlgorithms_FindDuplicateGroup(HashAlgorithmKind algorithm)
+    {
+        WriteFile("a.bin", "group content");
+        WriteFile("b.bin", "group content");
+        WriteFile("c.bin", "group content");
+        WriteFile("u.bin", "unique content");
+
+        var options = SingleDirOptions();
+        options.HashAlgorithm = algorithm;
+
+        var groups = _scanner.Scan(options).ToList();
+
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Files.Count).IsEqualTo(3);
+    }
+
+    [Test]
+    [Arguments(HashAlgorithmKind.Sha256)]
+    [Arguments(HashAlgorithmKind.XxHash3)]
+    [Arguments(HashAlgorithmKind.XxHash128)]
+    public async Task Scanner_AllHashAlgorithms_SameSizeDifferentContent_NoFalseDuplicates(HashAlgorithmKind algorithm)
+    {
+        // Same length, different content: must not be grouped (the non-crypto
+        // algorithms rely on the binary-content split for this).
+        WriteFile("a.bin", "aaa");
+        WriteFile("b.bin", "bbb");
+        WriteFile("c.bin", "ccc");
+
+        var options = SingleDirOptions();
+        options.HashAlgorithm = algorithm;
+
+        var groups = _scanner.Scan(options).ToList();
+
+        await Assert.That(groups).IsEmpty();
+    }
+
     // ---------- overlapping inputs (H1: must not self-duplicate) ----------
 
     [Test]
