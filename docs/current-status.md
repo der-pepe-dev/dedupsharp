@@ -18,6 +18,12 @@ Media (perceptual image) and audio (PCM/spectrogram) cores are planned, not impl
 ## Recent notes
 
 <!-- Append dated notes here, newest first: -->
+- 2026-06-27: Added BLAKE3 (`HashAlgorithmKind.Blake3`, `Blake3` NuGet 2.2.1). BLAKE3
+  is cryptographic so it is trusted for grouping (`IsCryptographic => true`) — no
+  mandatory binary-verify, unlike XxHash. Confirmed by allocation profile (~300 MB,
+  like SHA-256, vs XxHash's ~900 MB verify pass). The Dry benchmark is I/O-bound on the
+  slow mount, so it does not yet show a CPU speedup; a warm, CPU-bound run is needed for
+  authoritative hash-throughput numbers before changing the default algorithm.
 - 2026-06-26: Bug-fix pass. Fixed a data-loss path where overlapping scan inputs
   (dir+subdir, dir+file, or a repeated path) made a file its own "duplicate"
   (scanner now de-dupes by full path; planner skips `target == canonical`). Fixed

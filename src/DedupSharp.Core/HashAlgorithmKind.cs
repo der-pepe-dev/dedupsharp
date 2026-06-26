@@ -20,5 +20,8 @@ public enum HashAlgorithmKind
     XxHash3 = 1,
 
     /// <summary>XxHash128 (non-cryptographic; bucket + binary verify).</summary>
-    XxHash128 = 2
+    XxHash128 = 2,
+
+    /// <summary>BLAKE3 (cryptographic, SIMD-fast; trusted for grouping like SHA-256).</summary>
+    Blake3 = 3
 }

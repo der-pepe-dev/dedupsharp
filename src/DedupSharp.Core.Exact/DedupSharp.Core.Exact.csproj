@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Blake3" />
     <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
 
