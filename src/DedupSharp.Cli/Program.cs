@@ -157,6 +157,10 @@ internal static class Program
             }
         };
 
+        // In media mode, --ext (if given) restricts which image extensions are scanned.
+        if (media && safeExtensions.Count > 0)
+            scanOptions.ImageExtensions = safeExtensions;
+
         Console.WriteLine("Scanning...");
         List<DuplicateGroup> groups;
         try
