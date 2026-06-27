@@ -83,6 +83,31 @@ public class DuplicateActionPlannerTests
     }
 
     [Test]
+    public async Task Planner_RefusesHardlink_ForNonExactGroup()
+    {
+        var group = new DuplicateGroup(
+            10,
+            new[] { new FileEntry("a.png", 10), new FileEntry("b.png", 10) },
+            DuplicateKind.MediaImage);
+
+        var hardlink = new DuplicateActionPlannerOptions
+        {
+            ActionKind = DupActionKind.ReplaceWithHardLink,
+            CanonicalByLexicalPath = true
+        };
+        var delete = new DuplicateActionPlannerOptions
+        {
+            ActionKind = DupActionKind.Delete,
+            CanonicalByLexicalPath = true
+        };
+
+        // Hardlinking a similarity group would overwrite different images: no actions.
+        await Assert.That(DuplicateActionPlanner.Plan(new[] { group }, hardlink)).IsEmpty();
+        // Delete is still allowed for media groups.
+        await Assert.That(DuplicateActionPlanner.Plan(new[] { group }, delete).Count).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Planner_SkipsSelfPair_WhenDuplicatePathEqualsCanonical()
     {
         // A self-pair (same path twice) must never become a destructive action.

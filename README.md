@@ -166,7 +166,8 @@ As the project evolves, benchmark results and tuning notes can be documented her
 - CLI frontend (`DedupSharp.Cli`)
 - Media core for images (perceptual hashes, similarity detection)
 - Audio core (PCM-exact + spectrogram-based perceptual matching)
-- Windows GUI (WinForms/WPF) and possibly plugins (e.g. Total Commander)
+- Avalonia-based cross-platform GUI frontend
+- Total Commander plugin
 
 ---
 
@@ -184,3 +185,10 @@ For performance optimisations:
 ## License
 
 MIT – see `LICENSE`.
+
+> **Media module dependency note:** `DedupSharp.Core.Media` depends on
+> [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp) (3.1.x), which is
+> licensed under the Six Labors Split License. It is free to use in this open-source
+> (MIT) project, but a **closed-source/commercial** product that consumes
+> `DedupSharp.Core.Media` may require a commercial ImageSharp license. The exact and CLI
+> cores have no such dependency.

@@ -9,6 +9,8 @@ A reusable, frontend-agnostic core with optional frontends layered on top.
 
 - `DedupSharp.Core` — shared models and abstractions only. No I/O or scan strategy.
 - `DedupSharp.Core.Exact` — exact binary duplicate engine (size grouping + compare/hash).
+- `DedupSharp.Core.Media` — perceptual image engine (ImageSharp decode + aHash/dHash/pHash
+  + Hamming-distance clustering). See [[decisions/0001-media-image-perceptual-dedup]].
 - `DedupSharp.Tests` — xUnit correctness tests.
 - `DedupSharp.Benchmarks` — BenchmarkDotNet performance benchmarks (scaffolding).
 - `DedupSharp.Cli` — CLI frontend (emerging).
