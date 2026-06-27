@@ -141,9 +141,8 @@ public sealed class MediaImageScanner : IDuplicateScanner
             try { subDirs = current.GetDirectories(); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { continue; }
 
-            foreach (var sub in subDirs)
-                if ((sub.Attributes & FileAttributes.ReparsePoint) == 0)
-                    stack.Push(sub);
+            foreach (var sub in subDirs.Where(sub => (sub.Attributes & FileAttributes.ReparsePoint) == 0))
+                stack.Push(sub);
         }
     }
 
