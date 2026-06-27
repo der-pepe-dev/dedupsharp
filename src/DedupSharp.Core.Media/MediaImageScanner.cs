@@ -37,9 +37,9 @@ public sealed class MediaImageScanner : IDuplicateScanner
             {
                 hash = PerceptualHasher.Compute(fi.FullName, options.PerceptualHash);
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                continue; // not a decodable image
+                continue; // skip anything that cannot be decoded/hashed as an image
             }
 
             items.Add((new FileEntry(fi.FullName, fi.Length), hash));
