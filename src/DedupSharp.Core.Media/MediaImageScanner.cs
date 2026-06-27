@@ -102,9 +102,9 @@ public sealed class MediaImageScanner : IDuplicateScanner
             }
             else if (Directory.Exists(root))
             {
-                foreach (var fi in EnumerateFromDirectory(new DirectoryInfo(root), options))
-                    if (seen.Add(fi.FullName))
-                        yield return fi;
+                foreach (var fi in EnumerateFromDirectory(new DirectoryInfo(root), options)
+                             .Where(fi => seen.Add(fi.FullName)))
+                    yield return fi;
             }
         }
     }
@@ -126,14 +126,12 @@ public sealed class MediaImageScanner : IDuplicateScanner
             try { files = current.GetFiles(); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { continue; }
 
-            foreach (var fi in files)
+            foreach (var fi in files.Where(fi =>
+                         (fi.Attributes & FileAttributes.ReparsePoint) == 0 &&
+                         !options.IgnoredFileNames.Contains(fi.Name) &&
+                         IsImageCandidate(fi, options)))
             {
-                if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
-                    continue;
-                if (options.IgnoredFileNames.Contains(fi.Name))
-                    continue;
-                if (IsImageCandidate(fi, options))
-                    yield return fi;
+                yield return fi;
             }
 
             if (!options.Recursive)

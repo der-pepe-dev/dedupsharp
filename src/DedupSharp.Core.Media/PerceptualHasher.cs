@@ -82,7 +82,7 @@ public static class PerceptualHasher
         var cos = new double[8, n];
         for (int u = 0; u < 8; u++)
             for (int x = 0; x < n; x++)
-                cos[u, x] = Math.Cos((2 * x + 1) * u * Math.PI / (2 * n));
+                cos[u, x] = Math.Cos((2.0 * x + 1) * u * Math.PI / (2.0 * n));
 
         // Separable 2-D DCT, keeping only the top-left 8x8 block.
         var tmp = new double[8, n]; // DCT along rows (u, x-> kept u), per column y
