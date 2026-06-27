@@ -14,4 +14,5 @@ High-level direction, from the README. Update as items land.
   recompressed, small edits). Design: [[decisions/0001-media-image-perceptual-dedup]].
 - Audio core — PCM-exact (container/metadata agnostic) plus spectrogram-based
   perceptual matching that reuses the image core's hashing engine
-- Windows GUI (WinForms/WPF), possibly plugins (e.g. Total Commander)
+- Avalonia-based cross-platform GUI frontend (Linux/Windows/macOS), thin over the core
+- Total Commander plugin (content/lister or wfx) exposing dedup scans from the file manager

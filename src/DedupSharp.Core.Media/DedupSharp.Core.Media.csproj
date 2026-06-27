@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DedupSharp.Core\DedupSharp.Core.csproj" />
+  </ItemGroup>
+
+</Project>

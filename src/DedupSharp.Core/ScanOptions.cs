@@ -41,6 +41,28 @@ public sealed class ScanOptions
     /// </summary>
     public HashAlgorithmKind HashAlgorithm { get; set; } = HashAlgorithmKind.Sha256;
 
+    // ----- Media (perceptual image) core options; ignored by the exact engine -----
+
+    /// <summary>
+    /// Perceptual hash algorithm used by the media image core.
+    /// </summary>
+    public PerceptualHashKind PerceptualHash { get; set; } = PerceptualHashKind.DHash;
+
+    /// <summary>
+    /// Maximum Hamming distance (0-64) at which two images are considered near-duplicates.
+    /// Lower is stricter. Default 10.
+    /// </summary>
+    public int HammingThreshold { get; set; } = 10;
+
+    /// <summary>
+    /// File extensions treated as images by the media core (leading dot, case-insensitive).
+    /// </summary>
+    public ISet<string> ImageExtensions { get; set; } =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"
+        };
+
     /// <summary>
     /// If non-empty, only files whose extension is in this set will be scanned.
     /// Extensions should be stored with the leading dot (e.g. ".txt").

@@ -24,6 +24,12 @@ public static class DuplicateActionPlanner
             if (group.Files.Count <= 1)
                 continue;
 
+            // Hardlinking is only safe for byte-identical files. Never replace a
+            // similarity (e.g. perceptual-image) group's members with hardlinks — that
+            // would overwrite visibly-different files with one another's bytes.
+            if (options.ActionKind == DupActionKind.ReplaceWithHardLink && group.Kind != DuplicateKind.Exact)
+                continue;
+
             var files = group.Files;
 
             // Choose canonical

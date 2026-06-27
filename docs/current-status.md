@@ -18,6 +18,13 @@ Media (perceptual image) and audio (PCM/spectrogram) cores are planned, not impl
 ## Recent notes
 
 <!-- Append dated notes here, newest first: -->
+- 2026-06-27: Added the media (perceptual image) core `DedupSharp.Core.Media`
+  (`MediaImageScanner`, ImageSharp 3.1.x). Implements aHash/dHash/pHash (selectable via
+  `PerceptualHashKind`), Hamming-distance union-find clustering, `DuplicateKind` on
+  `DuplicateGroup`, and a planner guard refusing hardlink for non-`Exact` groups. Per
+  ADR 0001. Note: ImageSharp v4 enforces a build-time license key, so we pin 3.1.x
+  (Split License v1, free for OSS without a key). pHash needs a looser Hamming threshold
+  than aHash/dHash on smooth images.
 - 2026-06-27: Added BLAKE3 (`HashAlgorithmKind.Blake3`, `Blake3` NuGet 2.2.1). BLAKE3
   is cryptographic so it is trusted for grouping (`IsCryptographic => true`) — no
   mandatory binary-verify, unlike XxHash. Confirmed by allocation profile (~300 MB,

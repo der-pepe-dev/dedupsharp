@@ -10,9 +10,9 @@ Durable, prioritized task list. Active work goes in `tasks/<task-name>.md`, not 
 
 ## Medium priority
 
-- [ ] Implement the media (perceptual image) core per ADR
-      `docs/decisions/0001-media-image-perceptual-dedup.md`: `DedupSharp.Core.Media`
-      (ImageSharp), `PerceptualHashKind` (aHash/dHash/pHash), Hamming-distance
-      clustering, `DuplicateKind`, hardlink guard for non-Exact groups.
+- [ ] Expose the media core in the CLI (a `--media` scan mode + `--perceptual-hash`
+      and `--hamming` options); wire `MediaImageScanner` like `ExactDuplicateScanner`.
+- [ ] Consider per-algorithm default Hamming thresholds (pHash needs more slack than
+      aHash/dHash). For large libraries, replace O(n^2) clustering with a BK-tree.
 
 ## Low priority / someday

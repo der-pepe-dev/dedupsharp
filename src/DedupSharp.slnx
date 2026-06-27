@@ -2,6 +2,7 @@
   <Project Path="DedupSharp.Benchmarks/DedupSharp.Benchmarks.csproj" Id="b2c3d4e5-f6a7-8901-bcde-f23456789012" />
   <Project Path="DedupSharp.Cli/DedupSharp.Cli.csproj" Id="157d0b85-94a0-49a5-9f5f-9bfbee43bbf7" />
   <Project Path="DedupSharp.Core.Exact/DedupSharp.Core.Exact.csproj" Id="3522cb90-89d2-4a68-ab51-b221faef7ae7" />
+  <Project Path="DedupSharp.Core.Media/DedupSharp.Core.Media.csproj" Id="c3d4e5f6-a7b8-9012-cdef-345678901234" />
   <Project Path="DedupSharp.Core/DedupSharp.Core.csproj" Id="8ad0153e-30d0-4667-bfb0-0b3c6c6b373a" />
   <Project Path="DedupSharp.Tests/DedupSharp.Tests.csproj" Id="a1b2c3d4-e5f6-7890-abcd-ef1234567890" />
 </Solution>
