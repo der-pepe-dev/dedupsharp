@@ -8,6 +8,7 @@ using System.Threading;
 
 using DedupSharp.Core;
 using DedupSharp.Core.Exact;
+using DedupSharp.Core.Media;
 
 [assembly: InternalsVisibleTo("DedupSharp.Tests")]
 
@@ -63,6 +64,7 @@ internal static class Program
         string? quarantineDir = opts.QuarantineDirectory;
         DupActionKind actionKind = opts.ActionKind;
         bool assumeYes = opts.AssumeYes;
+        bool media = opts.Media;
 
         if (doApply && actionKind == DupActionKind.Delete && !allowDelete)
         {
@@ -127,7 +129,9 @@ internal static class Program
         }
 
         // Otherwise: perform a scan, optionally write a plan, optionally apply it immediately.
-        var scanner = new ExactDuplicateScanner();
+        IDuplicateScanner scanner = media
+            ? new MediaImageScanner()
+            : new ExactDuplicateScanner();
 
         var scanOptions = new ScanOptions
         {
@@ -137,6 +141,8 @@ internal static class Program
             MinFileSizeBytes = minSizeBytes,
             ExactMode = exactMode,
             HashAlgorithm = hashAlgorithm,
+            PerceptualHash = opts.PerceptualHash,
+            HammingThreshold = opts.HammingThreshold,
             SafeExtensions = safeExtensions,
             IgnoredDirectoryNames = ignoredDirs,
             IgnoredFileNames = ignoredFiles,
@@ -150,6 +156,10 @@ internal static class Program
                 Console.WriteLine($"[{p.Phase}] Files={p.FilesScanned}, Bytes={p.BytesScanned}");
             }
         };
+
+        // In media mode, --ext (if given) restricts which image extensions are scanned.
+        if (media && safeExtensions.Count > 0)
+            scanOptions.ImageExtensions = safeExtensions;
 
         Console.WriteLine("Scanning...");
         List<DuplicateGroup> groups;
@@ -173,7 +183,7 @@ internal static class Program
         foreach (var group in groups)
         {
             Console.WriteLine();
-            Console.WriteLine($"Group - Size: {group.SizeBytes} bytes, Files: {group.Files.Count}");
+            Console.WriteLine($"Group [{group.Kind}] - Size: {group.SizeBytes} bytes, Files: {group.Files.Count}");
             foreach (var f in group.Files)
             {
                 Console.WriteLine($"  {f.Path}");
@@ -283,6 +293,10 @@ internal static class Program
         DupActionKind actionKind = DupActionKind.MoveToQuarantine;
         bool assumeYes = false;
 
+        bool media = false;
+        PerceptualHashKind perceptualHash = PerceptualHashKind.DHash;
+        int hammingThreshold = 10;
+
         for (int i = 0; i < args.Length; i++)
         {
             var arg = args[i];
@@ -347,6 +361,25 @@ internal static class Program
                             throw new ArgumentException("--hash requires a value.");
                         i++;
                         hashAlgorithm = ParseHashAlgorithm(args[i]);
+                        break;
+
+                    case "--media":
+                        media = true;
+                        break;
+
+                    case "--perceptual-hash":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--perceptual-hash requires a value.");
+                        i++;
+                        perceptualHash = ParsePerceptualHash(args[i]);
+                        break;
+
+                    case "--hamming":
+                        if (i + 1 >= args.Length)
+                            throw new ArgumentException("--hamming requires a value.");
+                        i++;
+                        if (!int.TryParse(args[i], out hammingThreshold) || hammingThreshold is < 0 or > 64)
+                            throw new ArgumentException($"--hamming must be an integer 0-64: {args[i]}");
                         break;
 
                     case "--plan":
@@ -428,9 +461,21 @@ internal static class Program
             PlanFile = planFile,
             QuarantineDirectory = quarantineDir,
             ActionKind = actionKind,
-            AssumeYes = assumeYes
+            AssumeYes = assumeYes,
+            Media = media,
+            PerceptualHash = perceptualHash,
+            HammingThreshold = hammingThreshold
         };
     }
+
+    internal static PerceptualHashKind ParsePerceptualHash(string value) =>
+        value.ToLowerInvariant() switch
+        {
+            "ahash" or "average" => PerceptualHashKind.AHash,
+            "dhash" or "difference" => PerceptualHashKind.DHash,
+            "phash" or "perceptual" => PerceptualHashKind.PHash,
+            _ => throw new ArgumentException($"Unknown perceptual hash: {value}")
+        };
 
     internal static ExactScanMode ParseExactMode(string value) =>
         value.ToLowerInvariant() switch
@@ -536,6 +581,11 @@ internal static class Program
         Console.WriteLine("                             Non-crypto hashes (xxhash*) are always binary-verified;");
         Console.WriteLine("                             blake3 is cryptographic and trusted like sha256.");
         Console.WriteLine();
+        Console.WriteLine("Media (perceptual image) mode:");
+        Console.WriteLine("  --media                    Find visually-similar images instead of exact duplicates");
+        Console.WriteLine("  --perceptual-hash <algo>   ahash, dhash (default), phash");
+        Console.WriteLine("  --hamming <N>              Max Hamming distance 0-64 for a match (default 10)");
+        Console.WriteLine();
         Console.WriteLine("Plan / apply:");
         Console.WriteLine("  --plan                     Write a plan file (scan-only by default writes nothing)");
         Console.WriteLine("  --apply                    Apply actions (may be combined with --plan)");
@@ -576,4 +626,9 @@ internal sealed class CliOptions
     public string? QuarantineDirectory { get; init; }
     public DupActionKind ActionKind { get; init; } = DupActionKind.MoveToQuarantine;
     public bool AssumeYes { get; init; }
+
+    // Media (perceptual image) mode.
+    public bool Media { get; init; }
+    public PerceptualHashKind PerceptualHash { get; init; } = PerceptualHashKind.DHash;
+    public int HammingThreshold { get; init; } = 10;
 }

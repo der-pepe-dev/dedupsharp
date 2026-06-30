@@ -122,6 +122,53 @@ public class CliArgumentParsingTests
         await Assert.That(o.PlanFile).IsEqualTo("p.dduplan");
     }
 
+    // ---------- media options ----------
+
+    [Test]
+    public async Task ParseArguments_MediaDefaults()
+    {
+        var o = Program.ParseArguments(["x"]);
+
+        await Assert.That(o.Media).IsFalse();
+        await Assert.That(o.PerceptualHash).IsEqualTo(PerceptualHashKind.DHash);
+        await Assert.That(o.HammingThreshold).IsEqualTo(10);
+    }
+
+    [Test]
+    public async Task ParseArguments_MediaOptions()
+    {
+        var o = Program.ParseArguments(["x", "--media", "--perceptual-hash", "phash", "--hamming", "16"]);
+
+        await Assert.That(o.Media).IsTrue();
+        await Assert.That(o.PerceptualHash).IsEqualTo(PerceptualHashKind.PHash);
+        await Assert.That(o.HammingThreshold).IsEqualTo(16);
+    }
+
+    [Test]
+    [Arguments("99")]
+    [Arguments("-1")]
+    [Arguments("abc")]
+    public async Task ParseArguments_BadHamming_Throws(string value)
+    {
+        await Assert.That(() => Program.ParseArguments(["x", "--hamming", value])).Throws<ArgumentException>();
+    }
+
+    [Test]
+    [Arguments("ahash", PerceptualHashKind.AHash)]
+    [Arguments("dhash", PerceptualHashKind.DHash)]
+    [Arguments("difference", PerceptualHashKind.DHash)]
+    [Arguments("PHASH", PerceptualHashKind.PHash)]
+    public async Task ParsePerceptualHash_Valid(string text, PerceptualHashKind expected)
+    {
+        await Assert.That(Program.ParsePerceptualHash(text)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task ParsePerceptualHash_Invalid_Throws()
+    {
+        await Assert.That(() => Program.ParsePerceptualHash("nope")).Throws<ArgumentException>();
+    }
+
     // ---------- enum parsers ----------
 
     [Test]

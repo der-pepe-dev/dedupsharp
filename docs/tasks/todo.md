@@ -10,8 +10,6 @@ Durable, prioritized task list. Active work goes in `tasks/<task-name>.md`, not 
 
 ## Medium priority
 
-- [ ] Expose the media core in the CLI (a `--media` scan mode + `--perceptual-hash`
-      and `--hamming` options); wire `MediaImageScanner` like `ExactDuplicateScanner`.
 - [ ] Consider per-algorithm default Hamming thresholds (pHash needs more slack than
       aHash/dHash). For large libraries, replace O(n^2) clustering with a BK-tree.
 
